@@ -2,3 +2,4 @@ streamlit
 pandas
 graphviz
 openpyxl
+fpdf2

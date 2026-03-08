@@ -4,6 +4,7 @@ from collections import OrderedDict
 from graphviz import Digraph
 import time
 import re
+import io  # مكتبة للتعامل مع الذاكرة وتصدير الملفات
 
 # --- 1. دوال الحساب الآلي لـ First و Follow ---
 
@@ -52,14 +53,12 @@ def get_follow(grammar, start_symbol, first):
                         if len(follow[symbol]) > before: changed = True
     return follow
 
-# --- 2. معالجة القواعد بمرونة فائقة (دعم السهم → وفك الملتصق) ---
+# --- 2. معالجة القواعد بمرونة فائقة (دعم → وفك الملتصق) ---
 
 def parse_grammar_flexible(raw_text):
     grammar = OrderedDict()
     lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
-    
     for line in lines:
-        # دعم كافة أشكال الأسهم بما فيها السهم في الصورة →
         parts = re.split(r'->|=>|=|→', line)
         if len(parts) == 2:
             lhs = parts[0].strip()
@@ -67,24 +66,16 @@ def parse_grammar_flexible(raw_text):
             productions = []
             for opt in rhs_options:
                 opt_str = opt.strip()
-                # إذا كانت الخيارات تحتوي مسافات نعتمدها
                 if ' ' in opt_str:
                     symbols = [s.strip() for s in opt_str.split() if s.strip()]
                 else:
-                    # فك الرموز الملتصقة (مثل ABCDE تصبح A B C D E)
-                    # مع دعم id و ε والرموز المتبوعة بـ ' مثل E'
                     symbols = re.findall(r"[A-Z]'?|[a-z]|ε|id|\(|\)|\+|\*|\-", opt_str)
-                
-                if symbols:
-                    productions.append(symbols)
-                elif not opt_str or opt_str in ["ε", "epsilon"]:
-                    productions.append(["ε"])
-            
-            if lhs and productions:
-                grammar[lhs] = productions
+                if symbols: productions.append(symbols)
+                elif not opt_str or opt_str in ["ε", "epsilon"]: productions.append(["ε"])
+            if lhs and productions: grammar[lhs] = productions
     return grammar
 
-# --- 3. بقية وظائف التطبيق (الرسم والواجهة) ---
+# --- 3. وظائف العرض والرسم ---
 
 def highlight_input(tokens, current_index):
     html_str = "<div style='font-family: monospace; font-size: 18px; background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;'>"
@@ -114,31 +105,28 @@ def build_tree(trace_steps):
                     dot.edge(p_id, c_id)
     return dot
 
-# --- إعدادات الواجهة ---
-st.set_page_config(page_title="Ultra Flexible LL(1) Studio", layout="wide")
-st.title("🏗️ استوديو LL(1) الفائق")
+# --- واجهة التطبيق ---
+st.set_page_config(page_title="Professional LL(1) Studio", layout="wide")
+st.title("🏗️ استوديو LL(1) الاحترافي")
 
 st.sidebar.header("🛠️ إعدادات القواعد")
-example = "E → T E'\nE' → + T E' | ε\nT → F T'\nT' → * F T' | ε\nF → ( E ) | id"
-raw_input = st.sidebar.text_area("أدخل القواعد (يدعم → والرموز الملتصقة):", example, height=250)
+raw_input = st.sidebar.text_area("أدخل القواعد:", "E → T E'\nE' → + T E' | ε\nT → F T'\nT' → * F T' | ε\nF → ( E ) | id", height=250)
 
 grammar = parse_grammar_flexible(raw_input)
 
 if not grammar:
     st.warning("⚠️ يرجى إدخال القواعد بشكل صحيح (LHS → RHS).")
-    st.info("تأكد من استخدام سهم مثل -> أو → للفصل.")
     st.stop()
 
 start_node = list(grammar.keys())[0]
 first_sets = get_first(grammar)
 follow_sets = get_follow(grammar, start_node, first_sets)
 
-# واجهة المحاكاة والـ Dashboard
 st.subheader("📊 لوحة التحكم والمحاكاة")
-user_input = st.text_input("أدخل الجملة (افصل بين الرموز بمسافات):", "id + id * id")
+user_input = st.text_input("أدخل الجملة (افصل بمسافات):", "id + id * id")
 tokens = [t.strip() for t in user_input.split() if t.strip()] + ['$']
 
-if st.button("🚀 تحليل"):
+if st.button("🚀 تحليل الجملة"):
     col1, col2, col3 = st.columns(3)
     input_box = st.empty()
     stack_box = st.empty()
@@ -187,14 +175,23 @@ if st.button("🚀 تحليل"):
     is_acc = (not stack and index == len(tokens))
     col1.metric("الخطوات", len(trace))
     col2.metric("الحالة", "مقبولة ✅" if is_acc else "مرفوضة ❌")
-    col3.metric("النتيجة", "Success" if is_acc else "Failed")
     if is_acc: st.balloons()
     
-    st.table(pd.DataFrame(trace))
+    df_trace = pd.DataFrame(trace)
+    st.table(df_trace)
     
-    st.subheader("📥 تحميل التقرير")
-    csv = pd.DataFrame(trace).to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 تحميل التقرير كملف CSV", csv, "report.csv", "text/csv")
+    # --- التصدير إلى ملف Excel حقيقي لإصلاح مشكلة الأعمدة ---
+    st.subheader("📥 تحميل التقرير المنظم")
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_trace.to_excel(writer, index=False, sheet_name='Trace')
+    
+    st.download_button(
+        label="📥 تحميل التقرير كملف Excel (.xlsx)",
+        data=output.getvalue(),
+        file_name="parsing_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
     
     st.subheader("🌳 شجرة الإعراب")
     st.graphviz_chart(build_tree(trace))

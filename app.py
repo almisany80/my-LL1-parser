@@ -5,7 +5,7 @@ from graphviz import Digraph
 import re
 import time
 import io
-from fpdf import FPDF # مكتبة توليد PDF
+from fpdf import FPDF
 
 # --- 1. إعدادات الصفحة والتنسيق ---
 st.set_page_config(page_title="LL(1) Academic Studio", layout="wide")
@@ -14,20 +14,12 @@ st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
-    .ltr-text { direction: LTR !important; text-align: left !important; display: inline-block; }
+    .ltr-text { direction: LTR !important; text-align: left !important; font-family: monospace; }
     .stTable, .stDataFrame { direction: LTR !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. وظائف العرض الأكاديمي والتحليل ---
-
-def display_academic_grammar(grammar_dict):
-    """تحويل القاموس البرمجي إلى شكل رياضي أكاديمي"""
-    lines = []
-    for nt, prods in grammar_dict.items():
-        formatted_prods = " | ".join([" ".join(p) for p in prods])
-        lines.append(f"**{nt}** &nbsp; → &nbsp; {formatted_prods}")
-    return lines
+# --- 2. وظائف التحليل والعرض الأكاديمي ---
 
 def auto_fix_grammar(grammar):
     temp_g = OrderedDict()
@@ -113,47 +105,47 @@ def build_m_table(grammar, first, follow):
                     if b in table[nt]: table[nt][b] = f"{nt} -> {' '.join(p)}"
     return pd.DataFrame(table).T[terms]
 
-# --- 3. وظيفة توليد تقرير PDF الأكاديمي ---
+# --- 3. محرك الـ PDF المحسن لدعم Unicode ---
 
 class PDFReport(FPDF):
     def header(self):
-        self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'LL(1) Predictive Parsing Academic Report', 0, 1, 'C')
+        # استخدام خط مدمج يدعم الرموز الأساسية أو تجاهل غير المدعوم
+        self.set_font('Helvetica', 'B', 15)
+        self.cell(0, 10, 'LL(1) Predictive Parsing Report', 0, 1, 'C')
         self.ln(5)
 
     def chapter_title(self, label):
-        self.set_font('Arial', 'B', 12)
+        self.set_font('Helvetica', 'B', 12)
         self.set_fill_color(200, 220, 255)
         self.cell(0, 10, label, 0, 1, 'L', True)
         self.ln(4)
 
     def add_grammar_section(self, title, grammar_dict):
         self.chapter_title(title)
-        self.set_font('Courier', '', 11)
+        self.set_font('Courier', '', 10)
         for nt, prods in grammar_dict.items():
             formatted = " | ".join([" ".join(p) for p in prods])
-            self.cell(0, 8, f"{nt} -> {formatted}", 0, 1)
+            # استبدال ε بكلمة epsilon لضمان عدم حدوث خطأ في الخط
+            clean_text = f"{nt} -> {formatted}".replace('ε', 'epsilon')
+            self.cell(0, 8, clean_text, 0, 1)
         self.ln(5)
 
-    def add_table(self, df, title):
+    def add_table_safe(self, df, title):
         self.chapter_title(title)
-        self.set_font('Arial', 'B', 10)
-        # تحديد عرض الأعمدة تلقائياً
+        self.set_font('Helvetica', '', 8)
         col_width = self.epw / (len(df.columns) + 1)
-        # رأس الجدول
         self.cell(col_width, 10, 'NT', 1)
         for col in df.columns: self.cell(col_width, 10, str(col), 1)
         self.ln()
-        # محتوى الجدول
-        self.set_font('Arial', '', 9)
         for i, row in df.iterrows():
-            if self.get_y() > 250: self.add_page() # حماية فواصل الصفحات
             self.cell(col_width, 8, str(i), 1)
-            for val in row: self.cell(col_width, 8, str(val), 1)
+            for val in row:
+                txt = str(val).replace('ε', 'eps').replace('→', '->')
+                self.cell(col_width, 8, txt, 1)
             self.ln()
         self.ln(5)
 
-# --- 4. واجهة التطبيق ---
+# --- 4. واجهة التطبيق والمحاكاة ---
 
 with st.sidebar:
     st.header("📥 إدخال القواعد")
@@ -167,14 +159,12 @@ for line in raw_input.split('\n'):
         grammar_raw[parts[0].strip()] = [p.strip().split() for p in parts[1].split('|')]
 
 if grammar_raw:
-    # 1. القواعد المصححة
     st.header("1️⃣ القواعد المصححة (Academic View)")
     fixed_g = auto_fix_grammar(grammar_raw)
-    with st.container():
-        for line in display_academic_grammar(fixed_g):
-            st.markdown(f'<div class="ltr-text">{line}</div>', unsafe_allow_html=True)
+    for nt, prods in fixed_g.items():
+        formatted_prods = " | ".join([" ".join(p) for p in prods])
+        st.markdown(f'<div class="ltr-text">{nt} &nbsp; → &nbsp; {formatted_prods}</div>', unsafe_allow_html=True)
 
-    # 2 & 3. الحسابات
     f_sets, fo_sets = get_analysis_sets(fixed_g)
     ff_df = pd.DataFrame({
         "First": [", ".join(list(s)) for s in f_sets.values()],
@@ -188,9 +178,8 @@ if grammar_raw:
     m_table = build_m_table(fixed_g, f_sets, fo_sets)
     st.dataframe(m_table, use_container_width=True)
 
-    # 4 & 5. المحاكاة
     st.header("4️⃣ & 5️⃣ المحاكاة والشجرة")
-    user_input = st.text_input("الجملة:", "id + id * id")
+    user_input = st.text_input("الجملة (بدءاً بـ id):", "id + id * id")
     tokens = user_input.split() + ['$']
 
     if 'sim' not in st.session_state:
@@ -204,6 +193,7 @@ if grammar_raw:
         st.session_state.sim['dot'].node("0", start, style='filled', fillcolor="#BBDEFB")
         st.rerun()
 
+    # الحاويات التي سيتم تحديثها حياً داخل حلقة التشغيل
     tree_area = st.empty()
     trace_area = st.empty()
 
@@ -212,14 +202,14 @@ if grammar_raw:
         while not s['done']:
             if s['stack']:
                 top, pid = s['stack'].pop()
-                look = tokens[s['idx']]
+                lookahead = tokens[s['idx']]
                 step = {"Stack": " ".join([x for x, i in s['stack'] + [(top, pid)]]), "Input": " ".join(tokens[s['idx']:]), "Action": ""}
                 
-                if top == look:
-                    step["Action"] = f"Match {look}"
+                if top == lookahead:
+                    step["Action"] = f"Match {lookahead}"
                     s['idx'] += 1
                 elif top in fixed_g:
-                    rule = m_table.at[top, look]
+                    rule = m_table.at[top, lookahead]
                     if rule:
                         rhs = rule.split('->')[1].strip().split()
                         new_nodes = []
@@ -231,42 +221,35 @@ if grammar_raw:
                             if sym != 'ε': new_nodes.append((sym, nid))
                         for n in reversed(new_nodes): s['stack'].append(n)
                         step["Action"] = f"Apply {rule}"
-                if not s['stack'] or (top == '$' and look == '$'): s['done'] = True
+                
+                if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
                 s['trace'].append(step)
+                
+                # التحديث الحي
                 tree_area.graphviz_chart(s['dot'])
                 trace_area.table(pd.DataFrame(s['trace']))
                 time.sleep(speed)
-            else: break
+            else:
+                s['done'] = True
+                break
 
-    # 6. التقرير النهائي (Excel + PDF)
-    st.header("6️⃣ تحميل التقارير النهائية")
+    st.header("6️⃣ تحميل التقارير")
     col_dl1, col_dl2 = st.columns(2)
-    
     with col_dl1:
-        # Excel
         out_ex = io.BytesIO()
         with pd.ExcelWriter(out_ex, engine='openpyxl') as writer:
-            ff_df.to_excel(writer, sheet_name='Analysis')
-            m_table.to_excel(writer, sheet_name='M_Table')
-        st.download_button("📥 تحميل التقرير (Excel)", out_ex.getvalue(), "LL1_Report.xlsx")
+            ff_df.to_excel(writer, sheet_name='Sets')
+            m_table.to_excel(writer, sheet_name='Table')
+        st.download_button("📥 تحميل Excel", out_ex.getvalue(), "LL1_Report.xlsx")
 
     with col_dl2:
-        # PDF
         if st.button("📄 توليد تقرير PDF"):
             pdf = PDFReport()
             pdf.add_page()
-            pdf.add_grammar_section("Original Grammar", grammar_raw)
             pdf.add_grammar_section("Corrected Grammar", fixed_g)
-            pdf.add_table(ff_df, "First & Follow Sets")
-            pdf.add_table(m_table, "Predictive Parsing Table (M-Table)")
+            pdf.add_table_safe(ff_df, "First and Follow Sets")
+            pdf.add_table_safe(m_table, "M-Table")
             if st.session_state.sim['trace']:
-                pdf.add_table(pd.DataFrame(st.session_state.sim['trace']), "Parsing Trace Steps")
+                pdf.add_table_safe(pd.DataFrame(st.session_state.sim['trace']), "Simulation Trace")
             
-            # إضافة الشجرة كصورة (تتطلب حفظ مؤقت)
-            if st.session_state.sim['node_id'] > 0:
-                pdf.chapter_title("Final Parse Tree")
-                img_data = st.session_state.sim['dot'].pipe(format='png')
-                pdf.image(io.BytesIO(img_data), w=pdf.epw)
-                
-            st.download_button("📥 تحميل التقرير (PDF)", pdf.output(), "LL1_Academic_Report.pdf")
-
+            st.download_button("📥 تحميل PDF", pdf.output(), "LL1_Academic_Report.pdf")

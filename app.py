@@ -7,20 +7,16 @@ import time
 import io
 import copy
 
-# --- 1. إعدادات الصفحة والتنسيق المتقدم ---
+# --- 1. إعدادات الصفحة والتنسيق (RTL للأب والـ LTR للجداول التقنية) ---
 st.set_page_config(page_title="LL(1) Professional Studio", layout="wide")
 
-# تنسيق CSS للمحاذاة المطلوبة
 st.markdown("""
     <style>
-    /* التنسيق العام للعربية */
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
-    
-    /* جعل جداول التحليل تظهر من اليسار لليمين (LTR) حسب طلبك */
+    /* تنسيق الجداول لتظهر من اليسار لليمين LTR */
     .ltr-table { direction: LTR !important; text-align: left !important; }
-    .stDataFrame { direction: LTR !important; }
-    
+    .stDataFrame, [data-testid="stTable"] { direction: LTR !important; text-align: left !important; }
     /* الحفاظ على اتجاه الكود */
     code, pre, .stCode { direction: LTR !important; text-align: left !important; }
     </style>
@@ -74,7 +70,8 @@ def get_analysis_sets(grammar):
             else: res.add('ε')
         return res
     for nt in grammar: first[nt] = calc_f(nt)
-    start = list(grammar.keys())[0]
+    
+    start = list(grammar.keys())[0] if grammar else ""
     follow = {nt: set() for nt in grammar}; follow[start].add('$')
     for _ in range(5):
         for nt, prods in grammar.items():
@@ -84,20 +81,22 @@ def get_analysis_sets(grammar):
                         next_p = p[i+1:]
                         if next_p:
                             fn = set()
-                            for s in next_part:
+                            for s in next_p: # تم تصحيح الخطأ هنا من next_part إلى next_p
                                 sf = first[s] if s in grammar else {s}
                                 fn.update(sf - {'ε'})
                                 if 'ε' not in sf: break
                             else: fn.add('ε')
                             follow[sym].update(fn - {'ε'})
                             if 'ε' in fn: follow[sym].update(follow[nt])
-                        else: follow[sym].update(follow[nt])
+                        else:
+                            follow[sym].update(follow[nt])
     return first, follow
 
 def build_m_table(grammar, first, follow):
-    # ترتيب الأعمدة بحيث يكون $ في الأخير جهة اليمين (في التنسيق LTR)
+    # ترتيب الأعمدة: الحروف أولاً ثم $ في النهاية (لجهة اليمين في LTR)
     terms = sorted(list({s for ps in grammar.values() for p in ps for s in p if s not in grammar and s != 'ε'}))
-    terms.append('$') # إضافة $ في النهاية
+    if '$' in terms: terms.remove('$')
+    terms.append('$') 
     
     table = {nt: {t: "" for t in terms} for nt in grammar}
     for nt, prods in grammar.items():
@@ -113,9 +112,9 @@ def build_m_table(grammar, first, follow):
             if 'ε' in pf:
                 for b in follow[nt]: 
                     if b in table[nt]: table[nt][b] = f"{nt} → {' '.join(p)}"
-    return pd.DataFrame(table).T
+    return pd.DataFrame(table).T[terms] # ضمان ترتيب الأعمدة
 
-# --- 3. منطق المحاكاة (Simulation Logic) ---
+# --- 3. منطق المحاكاة ---
 
 def perform_step():
     s = st.session_state.sim
@@ -140,7 +139,6 @@ def perform_step():
                 for sym in rhs:
                     s['node_id'] += 1
                     nid = s['node_id']
-                    # رسم العقدة في الشجرة
                     s['dot'].node(str(nid), sym, style='filled', fillcolor="#C8E6C9" if sym in grammar else "#FFF9C4")
                     s['dot'].edge(str(pid), str(nid))
                     if sym != 'ε': new_nodes.append((sym, nid))
@@ -148,7 +146,7 @@ def perform_step():
                 step["الإجراء"] = f"تطبيق {rule}"
             else:
                 s['done'] = True
-                step["الإجراء"] = "❌ خطأ"
+                step["الإجراء"] = "❌ خطأ في الإعراب"
         
         if not s['stack'] or (top == '$' and look == '$'): s['done'] = True
         s['trace'].append(step)
@@ -160,7 +158,7 @@ def perform_step():
 with st.sidebar:
     st.header("📥 إدخال القواعد")
     raw_input = st.text_area("أدخل القواعد:", "E → E + T | T\nT → T * F | F\nF → ( E ) | id", height=150)
-    speed = st.slider("⏱️ سرعة العرض:", 0.1, 2.0, 0.5)
+    speed = st.slider("⏱️ سرعة العرض (ثواني):", 0.1, 2.0, 0.5)
 
 grammar_raw = {}
 for line in raw_input.split('\n'):
@@ -169,17 +167,17 @@ for line in raw_input.split('\n'):
         grammar_raw[parts[0].strip()] = [p.strip().split() for p in parts[1].split('|')]
 
 if grammar_raw:
-    # 1. التصحيح
+    # 1. القواعد المصححة
     st.header("1️⃣ القواعد المصححة")
     fixed_g = auto_fix_grammar(grammar_raw)
     st.session_state.fixed_grammar = fixed_g
     st.write(fixed_g)
 
-    # 2. First & Follow (LTR)
+    # 2. First & Follow
     st.header("2️⃣ مجموعات First & Follow")
     f_sets, fo_sets = get_analysis_sets(fixed_g)
     ff_df = pd.DataFrame({
-        "Non-Terminal": f_sets.keys(),
+        "Non-Terminal": list(f_sets.keys()),
         "First": [", ".join(list(s)) for s in f_sets.values()],
         "Follow": [", ".join(list(s)) for s in fo_sets.values()]
     })
@@ -203,40 +201,40 @@ if grammar_raw:
     if 'sim' not in st.session_state:
         st.session_state.sim = {'stack': [], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
 
-    col_ctrl1, col_ctrl2 = st.columns(2)
+    col_btn1, col_btn2 = st.columns(2)
     
-    if col_ctrl1.button("🔄 ضبط / إعادة تعيين"):
+    if col_btn1.button("🔄 ضبط / إعادة تعيين"):
         start = list(fixed_g.keys())[0]
         st.session_state.sim = {'stack': [('$', 0), (start, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
         st.session_state.sim['dot'].attr(rankdir='TD')
         st.session_state.sim['dot'].node("0", start, style='filled', fillcolor="#BBDEFB")
         st.rerun()
 
-    # الحاويات التي سيتم تحديثها حياً
+    # الحاويات التفاعلية
     col_tree, col_trace = st.columns([2, 1])
-    tree_placeholder = col_tree.empty()
-    trace_placeholder = col_trace.empty()
+    tree_area = col_tree.empty()
+    trace_area = col_trace.empty()
 
-    if col_ctrl2.button("▶️ تشغيل تلقائي"):
+    if col_btn2.button("▶️ تشغيل تلقائي"):
         while not st.session_state.sim['done']:
             if perform_step():
-                # تحديث الحاويات فوراً
-                tree_placeholder.graphviz_chart(st.session_state.sim['dot'])
-                trace_placeholder.table(pd.DataFrame(st.session_state.sim['trace']))
+                tree_area.graphviz_chart(st.session_state.sim['dot'])
+                trace_area.table(pd.DataFrame(st.session_state.sim['trace']))
                 time.sleep(speed)
             else: break
     
-    # عرض الحالة الحالية (للبقاء ظاهرة بعد الانتهاء)
+    # ضمان بقاء العرض بعد الانتهاء
     if st.session_state.sim['trace']:
-        tree_placeholder.graphviz_chart(st.session_state.sim['dot'])
-        trace_placeholder.table(pd.DataFrame(st.session_state.sim['trace']))
+        tree_area.graphviz_chart(st.session_state.sim['dot'])
+        trace_area.table(pd.DataFrame(st.session_state.sim['trace']))
 
     # 6. التقرير
-    st.header("6️⃣ تحميل التقرير")
-    if st.button("📄 توليد Excel"):
+    st.header("6️⃣ تحميل التقرير النهائي")
+    if st.button("📄 توليد تقرير Excel"):
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='First_Follow', index=False)
             m_table.to_excel(writer, sheet_name='M_Table')
-            if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(writer, sheet_name='Trace', index=False)
-        st.download_button("📥 تحميل التقرير", out.getvalue(), "LL1_Report.xlsx")
+            if st.session_state.sim['trace']:
+                pd.DataFrame(st.session_state.sim['trace']).to_excel(writer, sheet_name='Trace', index=False)
+        st.download_button("📥 تحميل الآن", out.getvalue(), "LL1_Studio_Report.xlsx")

@@ -7,7 +7,7 @@ import time
 import io
 from fpdf import FPDF
 
-# --- 1. إعدادات الصفحة ---
+# --- 1. إعدادات الصفحة والتنسيق العربي ---
 st.set_page_config(page_title="LL(1) Advanced Studio", layout="wide")
 
 st.markdown("""
@@ -19,32 +19,39 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. وظائف التحليل المنطقي ---
+# --- 2. محركات التصحيح والتحليل (تم إصلاح خطأ TypeError) ---
 
 def auto_fix_grammar(grammar):
+    # إزالة التداخل اليساري (Left Recursion)
     temp_g = OrderedDict()
     for nt, prods in grammar.items():
-        rec = [p[1:] for p in prods if p and p == nt]
-        non_rec = [p for p in prods if not (p and p == nt)]
-        if rec:
-            new_nt = f"{nt}'"
-            temp_g[nt] = [p + [new_nt] for p in non_rec] if non_rec else [[new_nt]]
-            temp_g[new_nt] = [p + [new_nt] for p in rec] + [['ε']]
+        recursive = [p[1:] for p in prods if p and p[0] == nt]
+        non_recursive = [p for p in prods if not (p and p[0] == nt)]
+        if recursive:
+            new_nt = f"{nt}p" # استخدام p بدلاً من ' لتجنب أخطاء PDF
+            temp_g[nt] = [p + [new_nt] for p in non_recursive] if non_recursive else [[new_nt]]
+            temp_g[new_nt] = [p + [new_nt] for p in recursive] + [['ε']]
         else: temp_g[nt] = prods
     
+    # إزالة العامل المشترك الأيسر (Left Factoring) - تم الإصلاح هنا
     final_g = OrderedDict()
     for nt, prods in temp_g.items():
-        if len(prods) <= 1: final_g[nt] = prods; continue
+        if len(prods) <= 1:
+            final_g[nt] = prods
+            continue
         prefixes = {}
         for p in prods:
-            f = p if p else 'ε'
-            if f not in prefixes: prefixes[f] = []
-            prefixes[f].append(p)
-        if any(len(v) > 1 for k, v in prefixes.items() if k != 'ε'):
+            # استخدام أول رمز كسلسلة نصية كمفتاح (Hashable)
+            first_sym = p[0] if p else 'ε'
+            if first_sym not in prefixes: prefixes[first_sym] = []
+            prefixes[first_sym].append(p)
+        
+        has_factoring = any(len(v) > 1 for k, v in prefixes.items() if k != 'ε')
+        if has_factoring:
             final_g[nt] = []
             for f, p_list in prefixes.items():
                 if len(p_list) > 1 and f != 'ε':
-                    new_nt = f"{nt}_f"
+                    new_nt = f"{nt}f"
                     final_g[nt].append([f, new_nt])
                     final_g[new_nt] = [p[1:] if len(p) > 1 else ['ε'] for p in p_list]
                 else: final_g[nt].extend(p_list)
@@ -105,54 +112,45 @@ def build_m_table(grammar, first, follow):
                     if b in table[nt]: table[nt][b] = f"{nt} -> {' '.join(p)}"
     return pd.DataFrame(table).T[terms]
 
-# --- 3. محرك تقارير PDF المطور ---
+# --- 3. محرك تقارير PDF الشامل ---
 
 class PDFReport(FPDF):
     def header(self):
-        self.set_font("Helvetica", "B", 16)
+        self.set_font("Arial", "B", 16)
         self.cell(0, 10, "LL(1) Predictive Parsing Academic Report", ln=True, align="C")
-        self.ln(10)
+        self.ln(5)
 
     def safe_text(self, text):
         return str(text).replace('→', '->').replace('ε', 'epsilon').replace('\'', 'p')
 
-    def add_section_title(self, title):
-        self.set_font("Helvetica", "B", 12)
+    def add_section(self, title, content_type, data):
+        self.set_font("Arial", "B", 12)
         self.set_fill_color(230, 230, 230)
         self.cell(0, 10, title, ln=True, fill=True)
-        self.ln(3)
-
-    def add_grammar(self, title, grammar_dict):
-        self.add_section_title(title)
-        self.set_font("Courier", "", 10)
-        for nt, prods in grammar_dict.items():
-            formatted = " | ".join([" ".join(p) for p in prods])
-            self.cell(0, 7, self.safe_text(f"{nt} -> {formatted}"), ln=True)
-        self.ln(5)
-
-    def add_data_table(self, df, title):
-        self.add_section_title(title)
-        self.set_font("Helvetica", "B", 8)
-        # تحديد العرض
-        col_width = self.epw / (len(df.columns) + 1)
-        # الرأس
-        self.cell(col_width, 8, "NT", 1)
-        for col in df.columns: self.cell(col_width, 8, self.safe_text(col), 1)
-        self.ln()
-        # البيانات
-        self.set_font("Helvetica", "", 7)
-        for i, row in df.iterrows():
-            if self.get_y() > 260: self.add_page()
-            self.cell(col_width, 7, self.safe_text(i), 1)
-            for val in row:
-                self.cell(col_width, 7, self.safe_text(val), 1)
+        self.ln(2)
+        
+        if content_type == "grammar":
+            self.set_font("Courier", "", 10)
+            for nt, prods in data.items():
+                formatted = " | ".join([" ".join(p) for p in prods])
+                self.cell(0, 7, self.safe_text(f"{nt} -> {formatted}"), ln=True)
+        elif content_type == "table":
+            self.set_font("Arial", "", 8)
+            col_w = self.epw / (len(data.columns) + 1)
+            self.cell(col_w, 8, "NT", 1)
+            for c in data.columns: self.cell(col_w, 8, self.safe_text(c), 1)
             self.ln()
+            for i, row in data.iterrows():
+                if self.get_y() > 260: self.add_page()
+                self.cell(col_w, 7, self.safe_text(i), 1)
+                for v in row: self.cell(col_w, 7, self.safe_text(v), 1)
+                self.ln()
         self.ln(5)
 
 # --- 4. واجهة التطبيق ---
 
 with st.sidebar:
-    st.header("📥 إدخال القواعد 🤖")
+    st.header("📥 إدخال القواعد")
     raw_input = st.text_area("القواعد الأصلية:", "E → E + T | T\nT → T * F | F\nF → ( E ) | id", height=150)
     speed = st.slider("⏱️ سرعة المحاكاة:", 0.1, 2.0, 0.5)
 
@@ -167,9 +165,9 @@ for line in raw_input.split('\n'):
             grammar_raw[lhs] = [p.strip().split() for p in rhs_raw.split('|')]
 
 if grammar_raw:
-    fixed_g = auto_fix_grammar(grammar_raw)
-    
+    # 1. القواعد المصححة
     st.header("1️⃣ القواعد المصححة")
+    fixed_g = auto_fix_grammar(grammar_raw)
     for nt, prods in fixed_g.items():
         formatted_prods = " | ".join([" ".join(p) for p in prods])
         st.markdown(f'<div class="ltr-text">{nt} → {formatted_prods}</div>', unsafe_allow_html=True)
@@ -185,32 +183,25 @@ if grammar_raw:
     st.dataframe(m_table, use_container_width=True)
 
     st.header("4️⃣ & 5️⃣ المحاكاة والشجرة")
-    user_input = st.text_input("أدخل الجملة المراد تحليلها (تذكر ترك مسافات ووضع $ في النهاية):", "id + id * id $")
+    user_input = st.text_input("أدخل الجملة:", "id + id * id $")
     
-    # --- فحص التنبيهات (الشرط الأول) ---
-    if st.button("▶️ ابدأ التشغيل التلقائي"):
+    if st.button("▶️ تشغيل تلقائي"):
         if not user_input.strip().endswith('$'):
-            st.warning("⚠️ تنبيه: يجب إنهاء الجملة برمز ($) لضمان نجاح عملية التحليل.")
-        elif ' ' not in user_input.strip()[:-1] and len(user_input.strip()) > 3:
-            st.info("💡 نصيحة: يرجى ترك مسافات بين الرموز (مثال: id + id) ليتعرف عليها المحلل بدقة.")
+            st.warning("⚠️ تنبيه: يجب إنهاء الجملة برمز ($) لضمان نجاح التحليل.")
         else:
-            # بدء المحاكاة
             tokens = user_input.split()
             start_sym = list(fixed_g.keys())[0]
-            st.session_state.sim = {'stack': [('$', 0), (start_sym, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
+            st.session_state.sim = {'stack': [('$', -1), (start_sym, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
             st.session_state.sim['dot'].attr(rankdir='TD')
             st.session_state.sim['dot'].node("0", start_sym, style='filled', fillcolor="#BBDEFB")
             
-            tree_area = st.empty()
-            trace_area = st.empty()
-            
+            tree_area, trace_area = st.empty(), st.empty()
             s = st.session_state.sim
             while not s['done']:
                 if s['stack']:
                     top, pid = s['stack'].pop()
                     lookahead = tokens[s['idx']]
                     step = {"Stack": " ".join([x for x, i in s['stack'] + [(top, pid)]]), "Input": " ".join(tokens[s['idx']:]), "Action": ""}
-                    
                     if top == lookahead:
                         step["Action"] = f"Match {lookahead}"; s['idx'] += 1
                     elif top in fixed_g:
@@ -220,50 +211,42 @@ if grammar_raw:
                             new_nodes = []
                             for sym in rhs:
                                 s['node_id'] += 1
-                                nid = s['node_id']
-                                s['dot'].node(str(nid), sym, style='filled', fillcolor="#C8E6C9" if sym in fixed_g else "#FFF9C4")
-                                s['dot'].edge(str(pid), str(nid))
+                                nid = str(s['node_id'])
+                                s['dot'].node(nid, sym, style='filled', fillcolor="#C8E6C9" if sym in fixed_g else "#FFF9C4")
+                                s['dot'].edge(str(pid), nid)
                                 if sym != 'ε': new_nodes.append((sym, nid))
                             for n in reversed(new_nodes): s['stack'].append(n)
                             step["Action"] = f"Apply {rule}"
-                    
                     if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
                     s['trace'].append(step)
                     tree_area.graphviz_chart(s['dot'])
                     trace_area.table(pd.DataFrame(s['trace']))
                     time.sleep(speed)
-                else: break
-            st.success("✅ اكتملت عملية التحليل.")
+                else: s['done'] = True
+            st.success("✅ اكتمل التحليل.")
 
-    # --- 6. التقارير (الشرط الثاني) ---
-    st.header("6️⃣ تحميل التقارير النهائية")
+    # 6. التقارير
+    st.header("6️⃣ تحميل التقارير")
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         out_ex = io.BytesIO()
         with pd.ExcelWriter(out_ex, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='Sets')
-            m_table.to_excel(writer, sheet_name='M_Table')
-        st.download_button("📥 تحميل التقرير (Excel)", out_ex.getvalue(), "LL1_Data_Report.xlsx")
+            m_table.to_excel(writer, sheet_name='Table')
+        st.download_button("📥 تحميل Excel", out_ex.getvalue(), "LL1_Report.xlsx")
 
     with col_dl2:
-        if st.button("📄 توليد وتحميل تقرير PDF الشامل"):
-            try:
-                pdf = PDFReport()
+        if st.button("📄 توليد تقرير PDF الشامل"):
+            pdf = PDFReport()
+            pdf.add_page()
+            pdf.add_section("Original Grammar", "grammar", grammar_raw)
+            pdf.add_section("Corrected Grammar", "grammar", fixed_g)
+            pdf.add_section("First and Follow Sets", "table", ff_df)
+            pdf.add_section("M-Table", "table", m_table)
+            if 'sim' in st.session_state and st.session_state.sim['trace']:
+                pdf.add_section("Trace Steps", "table", pd.DataFrame(st.session_state.sim['trace']))
                 pdf.add_page()
-                pdf.add_grammar("Original Grammar", grammar_raw)
-                pdf.add_grammar("Corrected Grammar", fixed_g)
-                pdf.add_data_table(ff_df, "First and Follow Sets")
-                pdf.add_data_table(m_table, "M-Table Action Table")
-                
-                if 'sim' in st.session_state and st.session_state.sim['trace']:
-                    pdf.add_data_table(pd.DataFrame(st.session_state.sim['trace']), "Simulation Trace Steps")
-                    # إضافة الشجرة في نهاية الـ PDF
-                    pdf.add_page()
-                    pdf.add_section_title("Final Parse Tree Visualization")
-                    img_bytes = st.session_state.sim['dot'].pipe(format='png')
-                    img_stream = io.BytesIO(img_bytes)
-                    pdf.image(img_stream, w=pdf.epw)
-                
-                st.download_button("📥 اضغط هنا لتحميل PDF الشامل", bytes(pdf.output()), "LL1_Full_Academic_Report.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"حدث خطأ أثناء بناء PDF: {e}")
+                pdf.cell(0, 10, "Final Parse Tree Visual", ln=True, align="C")
+                img = st.session_state.sim['dot'].pipe(format='png')
+                pdf.image(io.BytesIO(img), w=pdf.epw)
+            st.download_button("📥 تحميل PDF الشامل", bytes(pdf.output()), "LL1_Final_Report.pdf", "application/pdf")

@@ -14,12 +14,12 @@ st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
-    .ltr-text { direction: LTR !important; text-align: left !important; font-family: monospace; }
+    .ltr-text { direction: LTR !important; text-align: left !important; font-family: monospace; font-size: 16px; }
     .stTable, .stDataFrame { direction: LTR !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. وظائف التحليل والعرض الأكاديمي ---
+# --- 2. وظائف التحليل ---
 
 def auto_fix_grammar(grammar):
     temp_g = OrderedDict()
@@ -105,45 +105,44 @@ def build_m_table(grammar, first, follow):
                     if b in table[nt]: table[nt][b] = f"{nt} -> {' '.join(p)}"
     return pd.DataFrame(table).T[terms]
 
-# --- 3. محرك الـ PDF المحسن لدعم Unicode ---
+# --- 3. وظيفة تصدير PDF الآمنة ---
 
-class PDFReport(FPDF):
-    def header(self):
-        # استخدام خط مدمج يدعم الرموز الأساسية أو تجاهل غير المدعوم
-        self.set_font('Helvetica', 'B', 15)
-        self.cell(0, 10, 'LL(1) Predictive Parsing Report', 0, 1, 'C')
-        self.ln(5)
+def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table, trace):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "LL(1) Parsing Academic Report", ln=True, align="C")
+    pdf.ln(10)
 
-    def chapter_title(self, label):
-        self.set_font('Helvetica', 'B', 12)
-        self.set_fill_color(200, 220, 255)
-        self.cell(0, 10, label, 0, 1, 'L', True)
-        self.ln(4)
+    def safe_str(text):
+        # استبدال الرموز غير المدعومة في PDF القياسي
+        return str(text).replace('→', '->').replace('ε', 'epsilon').replace('\'', 'p')
 
-    def add_grammar_section(self, title, grammar_dict):
-        self.chapter_title(title)
-        self.set_font('Courier', '', 10)
-        for nt, prods in grammar_dict.items():
-            formatted = " | ".join([" ".join(p) for p in prods])
-            # استبدال ε بكلمة epsilon لضمان عدم حدوث خطأ في الخط
-            clean_text = f"{nt} -> {formatted}".replace('ε', 'epsilon')
-            self.cell(0, 8, clean_text, 0, 1)
-        self.ln(5)
+    # القواعد
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "1. Corrected Grammar:", ln=True)
+    pdf.set_font("Courier", "", 10)
+    for nt, prods in grammar_fixed.items():
+        formatted = " | ".join([" ".join(p) for p in prods])
+        pdf.cell(0, 8, safe_str(f"{nt} -> {formatted}"), ln=True)
+    pdf.ln(5)
 
-    def add_table_safe(self, df, title):
-        self.chapter_title(title)
-        self.set_font('Helvetica', '', 8)
-        col_width = self.epw / (len(df.columns) + 1)
-        self.cell(col_width, 10, 'NT', 1)
-        for col in df.columns: self.cell(col_width, 10, str(col), 1)
-        self.ln()
-        for i, row in df.iterrows():
-            self.cell(col_width, 8, str(i), 1)
-            for val in row:
-                txt = str(val).replace('ε', 'eps').replace('→', '->')
-                self.cell(col_width, 8, txt, 1)
-            self.ln()
-        self.ln(5)
+    # جداول (تحويلها لنصوص مبسطة للـ PDF لضمان المحاذاة)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "2. First and Follow Sets:", ln=True)
+    pdf.set_font("Courier", "", 9)
+    for i, row in ff_df.iterrows():
+        pdf.cell(0, 7, safe_str(f"{i} | First: {row['First']} | Follow: {row['Follow']}"), ln=True)
+    pdf.ln(5)
+
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "3. M-Table Action Summary:", ln=True)
+    pdf.set_font("Courier", "", 8)
+    for i, row in m_table.iterrows():
+        actions = [f"{col}:{val}" for col, val in row.items() if val]
+        pdf.multi_cell(0, 6, safe_str(f"{i} => {', '.join(actions)}"))
+    
+    return pdf.output()
 
 # --- 4. واجهة التطبيق والمحاكاة ---
 
@@ -156,20 +155,18 @@ grammar_raw = {}
 for line in raw_input.split('\n'):
     if '→' in line or '->' in line:
         parts = re.split(r'→|->|=', line)
-        grammar_raw[parts[0].strip()] = [p.strip().split() for p in parts[1].split('|')]
+        grammar_raw[parts.strip()] = [p.strip().split() for p in parts.split('|')]
 
 if grammar_raw:
-    st.header("1️⃣ القواعد المصححة (Academic View)")
+    st.header("1️⃣ القواعد المصححة")
     fixed_g = auto_fix_grammar(grammar_raw)
     for nt, prods in fixed_g.items():
         formatted_prods = " | ".join([" ".join(p) for p in prods])
-        st.markdown(f'<div class="ltr-text">{nt} &nbsp; → &nbsp; {formatted_prods}</div>', unsafe_allow_html=True)
+        # إزالة النجوم (**) تماماً وعرضها كنص HTML
+        st.markdown(f'<div class="ltr-text">{nt} → {formatted_prods}</div>', unsafe_allow_html=True)
 
     f_sets, fo_sets = get_analysis_sets(fixed_g)
-    ff_df = pd.DataFrame({
-        "First": [", ".join(list(s)) for s in f_sets.values()],
-        "Follow": [", ".join(list(s)) for s in fo_sets.values()]
-    }, index=f_sets.keys())
+    ff_df = pd.DataFrame({"First": [", ".join(list(s)) for s in f_sets.values()], "Follow": [", ".join(list(s)) for s in fo_sets.values()]}, index=f_sets.keys())
     
     st.header("2️⃣ مجموعات First & Follow")
     st.table(ff_df)
@@ -179,7 +176,7 @@ if grammar_raw:
     st.dataframe(m_table, use_container_width=True)
 
     st.header("4️⃣ & 5️⃣ المحاكاة والشجرة")
-    user_input = st.text_input("الجملة (بدءاً بـ id):", "id + id * id")
+    user_input = st.text_input("الجملة:", "id + id * id")
     tokens = user_input.split() + ['$']
 
     if 'sim' not in st.session_state:
@@ -193,7 +190,7 @@ if grammar_raw:
         st.session_state.sim['dot'].node("0", start, style='filled', fillcolor="#BBDEFB")
         st.rerun()
 
-    # الحاويات التي سيتم تحديثها حياً داخل حلقة التشغيل
+    # الحاويات التفاعلية
     tree_area = st.empty()
     trace_area = st.empty()
 
@@ -225,31 +222,32 @@ if grammar_raw:
                 if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
                 s['trace'].append(step)
                 
-                # التحديث الحي
+                # تحديث العرض فوراً
                 tree_area.graphviz_chart(s['dot'])
                 trace_area.table(pd.DataFrame(s['trace']))
                 time.sleep(speed)
             else:
                 s['done'] = True
-                break
+
+    # عرض النتائج الثابتة بعد انتهاء الحلقة
+    if st.session_state.sim['trace']:
+        tree_area.graphviz_chart(st.session_state.sim['dot'])
+        trace_area.table(pd.DataFrame(st.session_state.sim['trace']))
 
     st.header("6️⃣ تحميل التقارير")
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         out_ex = io.BytesIO()
         with pd.ExcelWriter(out_ex, engine='openpyxl') as writer:
-            ff_df.to_excel(writer, sheet_name='Sets')
-            m_table.to_excel(writer, sheet_name='Table')
+            ff_df.to_excel(writer, sheet_name='Analysis')
+            m_table.to_excel(writer, sheet_name='M_Table')
         st.download_button("📥 تحميل Excel", out_ex.getvalue(), "LL1_Report.xlsx")
 
     with col_dl2:
-        if st.button("📄 توليد تقرير PDF"):
-            pdf = PDFReport()
-            pdf.add_page()
-            pdf.add_grammar_section("Corrected Grammar", fixed_g)
-            pdf.add_table_safe(ff_df, "First and Follow Sets")
-            pdf.add_table_safe(m_table, "M-Table")
-            if st.session_state.sim['trace']:
-                pdf.add_table_safe(pd.DataFrame(st.session_state.sim['trace']), "Simulation Trace")
-            
-            st.download_button("📥 تحميل PDF", pdf.output(), "LL1_Academic_Report.pdf")
+        if st.button("📄 توليد وتحميل PDF"):
+            try:
+                pdf_data = create_pdf(grammar_raw, fixed_g, ff_df, m_table, st.session_state.sim['trace'])
+                # تحويل البيانات إلى bytes لضمان عمل Streamlit
+                st.download_button("📥 اضغط هنا لتحميل PDF", bytes(pdf_data), "LL1_Academic_Report.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"خطأ أثناء إنشاء PDF: {e}")

@@ -82,7 +82,8 @@ def get_analysis_sets(grammar):
                             else: fn.add('ε')
                             follow[sym].update(fn - {'ε'})
                             if 'ε' in fn: follow[sym].update(follow[nt])
-                        else: follow[sym].update(follow[nt])
+                        else:
+                            follow[sym].update(follow[nt])
     return first, follow
 
 def build_m_table(grammar, first, follow):
@@ -105,9 +106,9 @@ def build_m_table(grammar, first, follow):
                     if b in table[nt]: table[nt][b] = f"{nt} -> {' '.join(p)}"
     return pd.DataFrame(table).T[terms]
 
-# --- 3. وظيفة تصدير PDF الآمنة ---
+# --- 3. وظيفة تصدير PDF ---
 
-def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table, trace):
+def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
@@ -115,10 +116,8 @@ def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table, trace):
     pdf.ln(10)
 
     def safe_str(text):
-        # استبدال الرموز غير المدعومة في PDF القياسي
         return str(text).replace('→', '->').replace('ε', 'epsilon').replace('\'', 'p')
 
-    # القواعد
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "1. Corrected Grammar:", ln=True)
     pdf.set_font("Courier", "", 10)
@@ -127,20 +126,11 @@ def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table, trace):
         pdf.cell(0, 8, safe_str(f"{nt} -> {formatted}"), ln=True)
     pdf.ln(5)
 
-    # جداول (تحويلها لنصوص مبسطة للـ PDF لضمان المحاذاة)
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "2. First and Follow Sets:", ln=True)
     pdf.set_font("Courier", "", 9)
     for i, row in ff_df.iterrows():
         pdf.cell(0, 7, safe_str(f"{i} | First: {row['First']} | Follow: {row['Follow']}"), ln=True)
-    pdf.ln(5)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "3. M-Table Action Summary:", ln=True)
-    pdf.set_font("Courier", "", 8)
-    for i, row in m_table.iterrows():
-        actions = [f"{col}:{val}" for col, val in row.items() if val]
-        pdf.multi_cell(0, 6, safe_str(f"{i} => {', '.join(actions)}"))
     
     return pdf.output()
 
@@ -151,18 +141,23 @@ with st.sidebar:
     raw_input = st.text_area("القواعد الأصلية:", "E → E + T | T\nT → T * F | F\nF → ( E ) | id", height=150)
     speed = st.slider("⏱️ سرعة المحاكاة:", 0.1, 2.0, 0.5)
 
-grammar_raw = {}
+# --- إصلاح الخطأ البرمجي في معالجة القواعد ---
+grammar_raw = OrderedDict()
 for line in raw_input.split('\n'):
+    line = line.strip()
     if '→' in line or '->' in line:
+        # التقسيم بالسهم
         parts = re.split(r'→|->|=', line)
-        grammar_raw[parts.strip()] = [p.strip().split() for p in parts.split('|')]
+        if len(parts) == 2:
+            lhs = parts[0].strip()
+            rhs_raw = parts[1].strip() # هذا هو النص الذي يحتاج لتقسيم بـ |
+            grammar_raw[lhs] = [p.strip().split() for p in rhs_raw.split('|')]
 
 if grammar_raw:
     st.header("1️⃣ القواعد المصححة")
     fixed_g = auto_fix_grammar(grammar_raw)
     for nt, prods in fixed_g.items():
         formatted_prods = " | ".join([" ".join(p) for p in prods])
-        # إزالة النجوم (**) تماماً وعرضها كنص HTML
         st.markdown(f'<div class="ltr-text">{nt} → {formatted_prods}</div>', unsafe_allow_html=True)
 
     f_sets, fo_sets = get_analysis_sets(fixed_g)
@@ -190,7 +185,6 @@ if grammar_raw:
         st.session_state.sim['dot'].node("0", start, style='filled', fillcolor="#BBDEFB")
         st.rerun()
 
-    # الحاويات التفاعلية
     tree_area = st.empty()
     trace_area = st.empty()
 
@@ -201,10 +195,8 @@ if grammar_raw:
                 top, pid = s['stack'].pop()
                 lookahead = tokens[s['idx']]
                 step = {"Stack": " ".join([x for x, i in s['stack'] + [(top, pid)]]), "Input": " ".join(tokens[s['idx']:]), "Action": ""}
-                
                 if top == lookahead:
-                    step["Action"] = f"Match {lookahead}"
-                    s['idx'] += 1
+                    step["Action"] = f"Match {lookahead}"; s['idx'] += 1
                 elif top in fixed_g:
                     rule = m_table.at[top, lookahead]
                     if rule:
@@ -218,36 +210,24 @@ if grammar_raw:
                             if sym != 'ε': new_nodes.append((sym, nid))
                         for n in reversed(new_nodes): s['stack'].append(n)
                         step["Action"] = f"Apply {rule}"
-                
                 if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
                 s['trace'].append(step)
-                
-                # تحديث العرض فوراً
                 tree_area.graphviz_chart(s['dot'])
                 trace_area.table(pd.DataFrame(s['trace']))
                 time.sleep(speed)
-            else:
-                s['done'] = True
-
-    # عرض النتائج الثابتة بعد انتهاء الحلقة
-    if st.session_state.sim['trace']:
-        tree_area.graphviz_chart(st.session_state.sim['dot'])
-        trace_area.table(pd.DataFrame(st.session_state.sim['trace']))
+            else: break
 
     st.header("6️⃣ تحميل التقارير")
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         out_ex = io.BytesIO()
         with pd.ExcelWriter(out_ex, engine='openpyxl') as writer:
-            ff_df.to_excel(writer, sheet_name='Analysis')
-            m_table.to_excel(writer, sheet_name='M_Table')
+            ff_df.to_excel(writer, sheet_name='Sets')
+            m_table.to_excel(writer, sheet_name='Table')
         st.download_button("📥 تحميل Excel", out_ex.getvalue(), "LL1_Report.xlsx")
-
     with col_dl2:
-        if st.button("📄 توليد وتحميل PDF"):
+        if st.button("📄 توليد PDF"):
             try:
-                pdf_data = create_pdf(grammar_raw, fixed_g, ff_df, m_table, st.session_state.sim['trace'])
-                # تحويل البيانات إلى bytes لضمان عمل Streamlit
-                st.download_button("📥 اضغط هنا لتحميل PDF", bytes(pdf_data), "LL1_Academic_Report.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"خطأ أثناء إنشاء PDF: {e}")
+                pdf_bytes = create_pdf(grammar_raw, fixed_g, ff_df, m_table)
+                st.download_button("📥 تحميل PDF", bytes(pdf_bytes), "LL1_Report.pdf", "application/pdf")
+            except Exception as e: st.error(f"خطأ: {e}")

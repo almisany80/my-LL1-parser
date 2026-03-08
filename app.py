@@ -7,8 +7,8 @@ import time
 import io
 from fpdf import FPDF
 
-# --- 1. إعدادات الصفحة والتنسيق ---
-st.set_page_config(page_title="LL(1) Academic Studio", layout="wide")
+# --- 1. إعدادات الصفحة ---
+st.set_page_config(page_title="LL(1) Advanced Studio", layout="wide")
 
 st.markdown("""
     <style>
@@ -19,13 +19,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. وظائف التحليل ---
+# --- 2. وظائف التحليل المنطقي ---
 
 def auto_fix_grammar(grammar):
     temp_g = OrderedDict()
     for nt, prods in grammar.items():
-        rec = [p[1:] for p in prods if p and p[0] == nt]
-        non_rec = [p for p in prods if not (p and p[0] == nt)]
+        rec = [p[1:] for p in prods if p and p == nt]
+        non_rec = [p for p in prods if not (p and p == nt)]
         if rec:
             new_nt = f"{nt}'"
             temp_g[nt] = [p + [new_nt] for p in non_rec] if non_rec else [[new_nt]]
@@ -37,7 +37,7 @@ def auto_fix_grammar(grammar):
         if len(prods) <= 1: final_g[nt] = prods; continue
         prefixes = {}
         for p in prods:
-            f = p[0] if p else 'ε'
+            f = p if p else 'ε'
             if f not in prefixes: prefixes[f] = []
             prefixes[f].append(p)
         if any(len(v) > 1 for k, v in prefixes.items() if k != 'ε'):
@@ -82,8 +82,7 @@ def get_analysis_sets(grammar):
                             else: fn.add('ε')
                             follow[sym].update(fn - {'ε'})
                             if 'ε' in fn: follow[sym].update(follow[nt])
-                        else:
-                            follow[sym].update(follow[nt])
+                        else: follow[sym].update(follow[nt])
     return first, follow
 
 def build_m_table(grammar, first, follow):
@@ -106,56 +105,71 @@ def build_m_table(grammar, first, follow):
                     if b in table[nt]: table[nt][b] = f"{nt} -> {' '.join(p)}"
     return pd.DataFrame(table).T[terms]
 
-# --- 3. وظيفة تصدير PDF ---
+# --- 3. محرك تقارير PDF المطور ---
 
-def create_pdf(grammar_raw, grammar_fixed, ff_df, m_table):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "LL(1) Parsing Academic Report", ln=True, align="C")
-    pdf.ln(10)
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 16)
+        self.cell(0, 10, "LL(1) Predictive Parsing Academic Report", ln=True, align="C")
+        self.ln(10)
 
-    def safe_str(text):
+    def safe_text(self, text):
         return str(text).replace('→', '->').replace('ε', 'epsilon').replace('\'', 'p')
 
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "1. Corrected Grammar:", ln=True)
-    pdf.set_font("Courier", "", 10)
-    for nt, prods in grammar_fixed.items():
-        formatted = " | ".join([" ".join(p) for p in prods])
-        pdf.cell(0, 8, safe_str(f"{nt} -> {formatted}"), ln=True)
-    pdf.ln(5)
+    def add_section_title(self, title):
+        self.set_font("Helvetica", "B", 12)
+        self.set_fill_color(230, 230, 230)
+        self.cell(0, 10, title, ln=True, fill=True)
+        self.ln(3)
 
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "2. First and Follow Sets:", ln=True)
-    pdf.set_font("Courier", "", 9)
-    for i, row in ff_df.iterrows():
-        pdf.cell(0, 7, safe_str(f"{i} | First: {row['First']} | Follow: {row['Follow']}"), ln=True)
-    
-    return pdf.output()
+    def add_grammar(self, title, grammar_dict):
+        self.add_section_title(title)
+        self.set_font("Courier", "", 10)
+        for nt, prods in grammar_dict.items():
+            formatted = " | ".join([" ".join(p) for p in prods])
+            self.cell(0, 7, self.safe_text(f"{nt} -> {formatted}"), ln=True)
+        self.ln(5)
 
-# --- 4. واجهة التطبيق والمحاكاة ---
+    def add_data_table(self, df, title):
+        self.add_section_title(title)
+        self.set_font("Helvetica", "B", 8)
+        # تحديد العرض
+        col_width = self.epw / (len(df.columns) + 1)
+        # الرأس
+        self.cell(col_width, 8, "NT", 1)
+        for col in df.columns: self.cell(col_width, 8, self.safe_text(col), 1)
+        self.ln()
+        # البيانات
+        self.set_font("Helvetica", "", 7)
+        for i, row in df.iterrows():
+            if self.get_y() > 260: self.add_page()
+            self.cell(col_width, 7, self.safe_text(i), 1)
+            for val in row:
+                self.cell(col_width, 7, self.safe_text(val), 1)
+            self.ln()
+        self.ln(5)
+
+# --- 4. واجهة التطبيق ---
 
 with st.sidebar:
-    st.header("📥 إدخال القواعد")
+    st.header("📥 إدخال القواعد 🤖")
     raw_input = st.text_area("القواعد الأصلية:", "E → E + T | T\nT → T * F | F\nF → ( E ) | id", height=150)
     speed = st.slider("⏱️ سرعة المحاكاة:", 0.1, 2.0, 0.5)
 
-# --- إصلاح الخطأ البرمجي في معالجة القواعد ---
 grammar_raw = OrderedDict()
 for line in raw_input.split('\n'):
     line = line.strip()
     if '→' in line or '->' in line:
-        # التقسيم بالسهم
         parts = re.split(r'→|->|=', line)
         if len(parts) == 2:
             lhs = parts[0].strip()
-            rhs_raw = parts[1].strip() # هذا هو النص الذي يحتاج لتقسيم بـ |
+            rhs_raw = parts[1].strip()
             grammar_raw[lhs] = [p.strip().split() for p in rhs_raw.split('|')]
 
 if grammar_raw:
-    st.header("1️⃣ القواعد المصححة")
     fixed_g = auto_fix_grammar(grammar_raw)
+    
+    st.header("1️⃣ القواعد المصححة")
     for nt, prods in fixed_g.items():
         formatted_prods = " | ".join([" ".join(p) for p in prods])
         st.markdown(f'<div class="ltr-text">{nt} → {formatted_prods}</div>', unsafe_allow_html=True)
@@ -171,63 +185,85 @@ if grammar_raw:
     st.dataframe(m_table, use_container_width=True)
 
     st.header("4️⃣ & 5️⃣ المحاكاة والشجرة")
-    user_input = st.text_input("الجملة:", "id + id * id")
-    tokens = user_input.split() + ['$']
+    user_input = st.text_input("أدخل الجملة المراد تحليلها (تذكر ترك مسافات ووضع $ في النهاية):", "id + id * id $")
+    
+    # --- فحص التنبيهات (الشرط الأول) ---
+    if st.button("▶️ ابدأ التشغيل التلقائي"):
+        if not user_input.strip().endswith('$'):
+            st.warning("⚠️ تنبيه: يجب إنهاء الجملة برمز ($) لضمان نجاح عملية التحليل.")
+        elif ' ' not in user_input.strip()[:-1] and len(user_input.strip()) > 3:
+            st.info("💡 نصيحة: يرجى ترك مسافات بين الرموز (مثال: id + id) ليتعرف عليها المحلل بدقة.")
+        else:
+            # بدء المحاكاة
+            tokens = user_input.split()
+            start_sym = list(fixed_g.keys())[0]
+            st.session_state.sim = {'stack': [('$', 0), (start_sym, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
+            st.session_state.sim['dot'].attr(rankdir='TD')
+            st.session_state.sim['dot'].node("0", start_sym, style='filled', fillcolor="#BBDEFB")
+            
+            tree_area = st.empty()
+            trace_area = st.empty()
+            
+            s = st.session_state.sim
+            while not s['done']:
+                if s['stack']:
+                    top, pid = s['stack'].pop()
+                    lookahead = tokens[s['idx']]
+                    step = {"Stack": " ".join([x for x, i in s['stack'] + [(top, pid)]]), "Input": " ".join(tokens[s['idx']:]), "Action": ""}
+                    
+                    if top == lookahead:
+                        step["Action"] = f"Match {lookahead}"; s['idx'] += 1
+                    elif top in fixed_g:
+                        rule = m_table.at[top, lookahead]
+                        if rule:
+                            rhs = rule.split('->')[1].strip().split()
+                            new_nodes = []
+                            for sym in rhs:
+                                s['node_id'] += 1
+                                nid = s['node_id']
+                                s['dot'].node(str(nid), sym, style='filled', fillcolor="#C8E6C9" if sym in fixed_g else "#FFF9C4")
+                                s['dot'].edge(str(pid), str(nid))
+                                if sym != 'ε': new_nodes.append((sym, nid))
+                            for n in reversed(new_nodes): s['stack'].append(n)
+                            step["Action"] = f"Apply {rule}"
+                    
+                    if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
+                    s['trace'].append(step)
+                    tree_area.graphviz_chart(s['dot'])
+                    trace_area.table(pd.DataFrame(s['trace']))
+                    time.sleep(speed)
+                else: break
+            st.success("✅ اكتملت عملية التحليل.")
 
-    if 'sim' not in st.session_state:
-        st.session_state.sim = {'stack': [], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
-
-    col_btn1, col_btn2 = st.columns(2)
-    if col_btn1.button("🔄 ضبط / إعادة تعيين"):
-        start = list(fixed_g.keys())[0]
-        st.session_state.sim = {'stack': [('$', 0), (start, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
-        st.session_state.sim['dot'].attr(rankdir='TD')
-        st.session_state.sim['dot'].node("0", start, style='filled', fillcolor="#BBDEFB")
-        st.rerun()
-
-    tree_area = st.empty()
-    trace_area = st.empty()
-
-    if col_btn2.button("▶️ تشغيل تلقائي"):
-        s = st.session_state.sim
-        while not s['done']:
-            if s['stack']:
-                top, pid = s['stack'].pop()
-                lookahead = tokens[s['idx']]
-                step = {"Stack": " ".join([x for x, i in s['stack'] + [(top, pid)]]), "Input": " ".join(tokens[s['idx']:]), "Action": ""}
-                if top == lookahead:
-                    step["Action"] = f"Match {lookahead}"; s['idx'] += 1
-                elif top in fixed_g:
-                    rule = m_table.at[top, lookahead]
-                    if rule:
-                        rhs = rule.split('->')[1].strip().split()
-                        new_nodes = []
-                        for sym in rhs:
-                            s['node_id'] += 1
-                            nid = s['node_id']
-                            s['dot'].node(str(nid), sym, style='filled', fillcolor="#C8E6C9" if sym in fixed_g else "#FFF9C4")
-                            s['dot'].edge(str(pid), str(nid))
-                            if sym != 'ε': new_nodes.append((sym, nid))
-                        for n in reversed(new_nodes): s['stack'].append(n)
-                        step["Action"] = f"Apply {rule}"
-                if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
-                s['trace'].append(step)
-                tree_area.graphviz_chart(s['dot'])
-                trace_area.table(pd.DataFrame(s['trace']))
-                time.sleep(speed)
-            else: break
-
-    st.header("6️⃣ تحميل التقارير")
+    # --- 6. التقارير (الشرط الثاني) ---
+    st.header("6️⃣ تحميل التقارير النهائية")
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         out_ex = io.BytesIO()
         with pd.ExcelWriter(out_ex, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='Sets')
-            m_table.to_excel(writer, sheet_name='Table')
-        st.download_button("📥 تحميل Excel", out_ex.getvalue(), "LL1_Report.xlsx")
+            m_table.to_excel(writer, sheet_name='M_Table')
+        st.download_button("📥 تحميل التقرير (Excel)", out_ex.getvalue(), "LL1_Data_Report.xlsx")
+
     with col_dl2:
-        if st.button("📄 توليد PDF"):
+        if st.button("📄 توليد وتحميل تقرير PDF الشامل"):
             try:
-                pdf_bytes = create_pdf(grammar_raw, fixed_g, ff_df, m_table)
-                st.download_button("📥 تحميل PDF", bytes(pdf_bytes), "LL1_Report.pdf", "application/pdf")
-            except Exception as e: st.error(f"خطأ: {e}")
+                pdf = PDFReport()
+                pdf.add_page()
+                pdf.add_grammar("Original Grammar", grammar_raw)
+                pdf.add_grammar("Corrected Grammar", fixed_g)
+                pdf.add_data_table(ff_df, "First and Follow Sets")
+                pdf.add_data_table(m_table, "M-Table Action Table")
+                
+                if 'sim' in st.session_state and st.session_state.sim['trace']:
+                    pdf.add_data_table(pd.DataFrame(st.session_state.sim['trace']), "Simulation Trace Steps")
+                    # إضافة الشجرة في نهاية الـ PDF
+                    pdf.add_page()
+                    pdf.add_section_title("Final Parse Tree Visualization")
+                    img_bytes = st.session_state.sim['dot'].pipe(format='png')
+                    img_stream = io.BytesIO(img_bytes)
+                    pdf.image(img_stream, w=pdf.epw)
+                
+                st.download_button("📥 اضغط هنا لتحميل PDF الشامل", bytes(pdf.output()), "LL1_Full_Academic_Report.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"حدث خطأ أثناء بناء PDF: {e}")

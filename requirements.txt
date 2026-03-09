@@ -4,3 +4,8 @@ graphviz
 fpdf2>=2.7.4
 openpyxl
 pillow
+xlsxwriter
+
+
+
+

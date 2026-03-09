@@ -185,7 +185,7 @@ if grammar_raw:
     st.dataframe(m_table, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.header("4️⃣ & 5️⃣ المحاكاة")
+    st.header("4️⃣ & 5️⃣ تتبع الجملة ورسم الشجرة التفاعلية")
     u_input = st.text_input("أدخل الجملة:", "id + id * id $")
     if 'sim' not in st.session_state: st.session_state.sim = {'trace': [], 'dot': None}
 
@@ -246,6 +246,7 @@ if grammar_raw:
             m_table.to_excel(w, sheet_name='M_Table')
             if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
         st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
+
 
 
 

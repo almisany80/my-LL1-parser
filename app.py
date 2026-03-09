@@ -15,8 +15,8 @@ st.markdown("""
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
     .ltr-table { direction: LTR !important; text-align: left !important; font-family: sans-serif; }
-    .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; }
-    .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; }
+    .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 20px; }
+    .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 20px; }
     .grammar-box { background-color: #f0f2f6; padding: 10px; border-radius: 5px; border-right: 5px solid #ff4b4b; margin: 10px 0; }
     </style>
     """, unsafe_allow_html=True)
@@ -55,7 +55,7 @@ def apply_left_factoring(grammar):
             suffix = [p[len(prefix):] if p[len(prefix):] else ['ε'] for p in prods]
             new_grammar[new_nt] = suffix
         else:
-            new_grammar[nt] = prods
+             new_grammar[nt] = prods
     return new_grammar
 
 def get_first_follow(grammar):
@@ -117,138 +117,4 @@ class AcademicPDF(FPDF):
             self.set_font(self.f_name, "", 8)
             cols = list(df.columns)
             cw = self.epw / (len(cols) + (0 if "Stack" in cols else 1))
-            if "Stack" not in cols: _ = self.cell(cw, 8, "NT", 1, 0, 'C')
-            for c in cols: _ = self.cell(cw, 8, str(c), 1, 0, 'C')
-            self.ln()
-            for _, r in df.iterrows():
-                if self.get_y() > 250: self.add_page()
-                if "Stack" not in cols: _ = self.cell(cw, 7, str(r.name), 1, 0, 'C')
-                for v in r: _ = self.cell(cw, 7, str(v), 1, 0, 'L')
-                self.ln()
-        self.ln(5)
-
-# 4. واجهة المستخدم --- #
-with st.sidebar:
-    st.header("⚙️ المدخلات")
-    raw_in = st.text_area("أدخل القواعد:", "E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id", height=150)
-    speed = st.slider("سرعة المحاكاة:", 0.1, 2.0, 0.5)
-
-grammar_raw = OrderedDict()
-for line in raw_in.split('\n'):
-    if '->' in line:
-        lhs, rhs = line.split('->')
-        grammar_raw[lhs.strip()] = [opt.strip().split() for opt in rhs.split('|')]
-
-if grammar_raw:
-    # خطوة التحقق والتصحيح
-    st.header("1️⃣ التحقق والتصحيح (Verification)")
-    g_step1 = remove_left_recursion(grammar_raw)
-    fixed_g = apply_left_factoring(g_step1)
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("القواعد الأصلية:")
-        for k, v in grammar_raw.items():
-            st.markdown(f'<div class="grammar-box ltr-table">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
-    with col_b:
-        st.subheader("القواعد المصححة:")
-        for k, v in fixed_g.items():
-            st.markdown(f'<div class="grammar-box ltr-table" style="border-right-color:#2e7d32">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
-
-    # حساب First & Follow
-    f_sets, fo_sets = get_first_follow(fixed_g)
-    ff_df = pd.DataFrame({
-        "First": [", ".join(sorted(list(s))) for s in f_sets.values()],
-        "Follow": [", ".join(sorted(list(s))) for s in fo_sets.values()]
-    }, index=f_sets.keys())
-
-    # بناء M-Table
-    terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
-    m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
-    for nt, prods in fixed_g.items():
-        for p in prods:
-            first_p = set()
-            for s in p:
-                sf = f_sets[s] if s in fixed_g else {s}
-                first_p.update(sf - {'ε'})
-                if 'ε' not in sf: break
-            else: first_p.add('ε')
-            for a in first_p:
-                if a != 'ε': m_table.at[nt, a] = f"{nt} -> {' '.join(p)}"
-            if 'ε' in first_p:
-                for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt} -> {' '.join(p)}"
-
-    st.header("2️⃣ جداول مجموعات First & Follow")
-    st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
-    st.table(ff_df)
-    st.header("3️⃣ مصفوفة الإعراب (M-Table)")
-    st.dataframe(m_table, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.header("4️⃣ & 5️⃣ تتبع الجملة ورسم الشجرة التفاعلية")
-    u_input = st.text_input("أدخل الجملة:", "id + id * id $")
-    if 'sim' not in st.session_state: st.session_state.sim = {'trace': [], 'dot': None}
-
-    if st.button("▶ تشغيل"):
-        tokens, idx, node_id, trace = u_input.split(), 0, 0, []
-        stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
-        dot = Digraph()
-        dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor=LEVEL_COLORS[0])
-        
-        while stack:
-            top, pid = stack.pop()
-            look = tokens[idx] if idx < len(tokens) else '$'
-            step = {"Stack": " ".join([s for s, i in stack] + [top]), "Input": look, "Action": ""}
-            
-            if top == look:
-                step["Action"] = f"✅ Match {look}"; idx += 1
-                if top == '$': break
-            elif top in fixed_g:
-                rule = m_table.at[top, look]
-                if rule:
-                    rhs = rule.split('->')[1].strip().split()
-                    step["Action"] = f"Apply {rule}"
-                    new_nodes = []
-                    for sym in rhs:
-                        node_id += 1; nid = str(node_id)
-                        dot.node(nid, sym, style='filled', fillcolor=LEVEL_COLORS[node_id % 6])
-                        dot.edge(pid, nid)
-                        if sym != 'ε': new_nodes.append((sym, nid))
-                    for n in reversed(new_nodes): stack.append(n)
-                else: step["Action"] = "❌ Error"; trace.append(step); break
-            else: step["Action"] = "❌ Error"; trace.append(step); break
-            trace.append(step)
-        st.session_state.sim = {'trace': trace, 'dot': dot}
-
-    if st.session_state.sim['trace']:
-        st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
-        st.table(pd.DataFrame(st.session_state.sim['trace']))
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.graphviz_chart(st.session_state.sim['dot'])
-
-    st.header("6️⃣ تحميل التقارير")
-    cp, cx = st.columns(2)
-    with cp:
-        if st.button("📄 PDF"):
-            pdf = AcademicPDF(); pdf.add_page()
-            pdf.add_section("1. Original Grammar", grammar=grammar_raw)
-            pdf.add_section("2. Fixed Grammar", grammar=fixed_g)
-            pdf.add_section("3. First & Follow", df=ff_df)
-            pdf.add_section("4. M-Table", df=m_table)
-            if st.session_state.sim['trace']:
-                pdf.add_section("5. Trace", df=pd.DataFrame(st.session_state.sim['trace']))
-                pdf.add_page(); pdf.image(io.BytesIO(st.session_state.sim['dot'].pipe(format='png')), w=pdf.epw)
-            st.download_button("📥 تحميل PDF", bytes(pdf.output()), "Report.pdf")
-    with cx:
-        out = io.BytesIO()
-        with pd.ExcelWriter(out, engine='openpyxl') as w:
-            ff_df.to_excel(w, sheet_name='Sets')
-            m_table.to_excel(w, sheet_name='M_Table')
-            if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
-        st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
-
-
-
-
-
-
+            if "Stack" not in cols: _ = self.cell(cw,

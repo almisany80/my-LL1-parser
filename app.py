@@ -4,10 +4,9 @@ from collections import OrderedDict
 from graphviz import Digraph
 import io
 import os
-from fpdf import FPDF
 
-# 1. التنسيق الأكاديمي (RTL)
-st.set_page_config(page_title="LL(1) Academic Studio V5.3", layout="wide")
+# 1. التنسيق الأكاديمي
+st.set_page_config(page_title="LL(1) Academic Studio V5.4", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
@@ -15,13 +14,12 @@ st.markdown("""
     .ltr-table { direction: LTR !important; text-align: left !important; font-family: 'Consolas', monospace; }
     .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-top:10px; }
     .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-top:10px; }
-    .conflict-msg { background-color: #ffebee; color: #b71c1c; padding: 15px; border-left: 5px solid #b71c1c; margin: 10px 0; font-weight: bold; border-radius: 5px; }
     .grammar-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-right: 5px solid #d32f2f; margin: 10px 0; font-family: monospace; }
     .info-box { background-color: #e3f2fd; color: #0d47a1; padding: 20px; border-radius: 10px; border-right: 5px solid #2196f3; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف المعالجة النحوية
+# 2. وظائف المعالجة
 def remove_left_recursion(grammar):
     new_grammar = OrderedDict()
     for nt, prods in grammar.items():
@@ -85,33 +83,26 @@ def get_first_follow_stable(grammar):
         if not changed: break
     return first, follow
 
-def highlight_conflicts(val):
-    if "|" in str(val): return 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold'
-    return ''
-
-# 3. إدارة الحالة (Session State)
+# 3. إدارة الحالة
 if 'sim' not in st.session_state:
-    st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False, 'tokens': []}
-if 'last_config' not in st.session_state: st.session_state.last_config = ""
+    st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False}
+if 'last_cfg' not in st.session_state: st.session_state.last_cfg = ""
 
-# 4. الواجهة الجانبية (Sidebar)
 with st.sidebar:
-    st.header("⚙️ لوحة التحكم")
-    default_grammar = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
-    raw_in = st.text_area("أدخل القواعد النحوية:", default_grammar, height=200)
-    u_input = st.text_input("الجملة (مسافات بين الرموز):", "id * id + id $")
+    st.header("⚙️ الإعدادات")
+    def_g = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
+    raw_in = st.text_area("القواعد:", def_g, height=200)
+    u_input = st.text_input("الجملة المختبرة:", "id + id * id $")
     
-    # التحقق من تغيير القواعد أو الجملة لتصفير المحاكاة تلقائياً
-    current_config = f"{raw_in}_{u_input}"
-    if current_config != st.session_state.last_config:
-        st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False, 'tokens': []}
-        st.session_state.last_config = current_config
+    if f"{raw_in}_{u_input}" != st.session_state.last_cfg:
+        st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False}
+        st.session_state.last_cfg = f"{raw_in}_{u_input}"
 
-    if st.button("🗑 مسح تتبع الجملة الحالية"):
-        st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False, 'tokens': []}
+    if st.button("🗑 مسح المحاكاة"):
+        st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False}
         st.rerun()
 
-# 5. المعالجة الأساسية
+# 4. بناء الجداول
 grammar_raw = OrderedDict()
 for line in raw_in.strip().split('\n'):
     if '->' in line:
@@ -122,61 +113,44 @@ if grammar_raw:
     fixed_g = apply_left_factoring(remove_left_recursion(grammar_raw))
     f_sets, fo_sets = get_first_follow_stable(fixed_g)
     
-    st.header("1️⃣ القواعد (Grammar)")
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.subheader("الأصلية")
-        for k, v in grammar_raw.items(): st.markdown(f'<div class="grammar-box ltr-table">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
-    with col_g2:
-        st.subheader("المعالجة (LL1)")
-        for k, v in fixed_g.items(): st.markdown(f'<div class="grammar-box ltr-table" style="border-right-color:#2e7d32">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
+    st.header("1️⃣ القواعد و First/Follow")
+    c1, c2 = st.columns(2)
+    with c1:
+        for k, v in fixed_g.items(): st.markdown(f'<div class="grammar-box ltr-table">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
+    with c2:
+        ff_df = pd.DataFrame({"First": [str(f_sets[n]) for n in fixed_g], "Follow": [str(fo_sets[n]) for n in fixed_g]}, index=fixed_g.keys())
+        st.table(ff_df)
 
-    # حساب جداول First & Follow
-    st.header("2️⃣ جداول First & Follow")
-    ff_data = {
-        "First Set": [", ".join(sorted(list(f_sets[nt]))) for nt in fixed_g],
-        "Follow Set": [", ".join(sorted(list(fo_sets[nt]))) for nt in fixed_g]
-    }
-    st.table(pd.DataFrame(ff_data, index=fixed_g.keys()))
-
-    # بناء M-Table
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
     m_data = {nt: {t: [] for t in terms} for nt in fixed_g}
     for nt, prods in fixed_g.items():
         for p in prods:
-            p_first = set()
+            p_f = set()
             for s in p:
-                sf = f_sets[s] if s in fixed_g else {s}
-                p_first.update(sf - {'ε'})
+                sf = f_sets[s] if s in fixed_g else {s}; p_f.update(sf - {'ε'})
                 if 'ε' not in sf: break
-            else: p_first.add('ε')
-            for a in p_first:
+            else: p_f.add('ε')
+            for a in p_f:
                 if a != 'ε': m_data[nt][a].append(f"{nt}->{' '.join(p)}")
-            if 'ε' in p_first:
+            if 'ε' in p_f:
                 for b in fo_sets[nt]: m_data[nt][b].append(f"{nt}->{' '.join(p)}")
 
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
-    is_ll1 = True
     for nt in fixed_g:
         for t in terms:
             rules = list(set(m_data[nt][t]))
-            if len(rules) > 1: is_ll1 = False; m_table.at[nt, t] = " | ".join(rules)
-            elif len(rules) == 1: m_table.at[nt, t] = rules[0]
+            m_table.at[nt, t] = rules[0] if len(rules) == 1 else (" | ".join(rules) if len(rules) > 1 else "")
 
-    st.header("3️⃣ مصفوفة الإعراب (Parsing Table)")
-    st.dataframe(m_table.style.applymap(highlight_conflicts), use_container_width=True)
-    if not is_ll1:
-        st.markdown('<div class="conflict-msg">⚠️ القواعد ليست LL(1). سيتم التوقف عند خلية التضارب.</div>', unsafe_allow_html=True)
+    st.header("2️⃣ مصفوفة الإعراب (M-Table)")
+    st.dataframe(m_table.style.applymap(lambda v: 'background-color: #ffcdd2' if '|' in v else ''), use_container_width=True)
 
-    # 6. محاكاة تتبع الجملة والشجرة
-    st.header("4️⃣ تتبع الجملة (Tracing)")
+    # 5. محاكاة التتبع (إصلاح ترتيب الرسم)
+    st.header("3️⃣ محاكاة الاشتقاق")
     
-    def get_input_str(tokens, i): return " ".join(tokens[i:]) if i < len(tokens) else "$"
-
     def run_step(stack, tokens, idx, node_id, dot, trace):
         if not stack: return idx, node_id, True, "Accepted"
         top, pid = stack.pop(); look = tokens[idx] if idx < len(tokens) else '$'
-        step = {"Stack": " ".join([v for v, i in stack] + [top]), "Input": get_input_str(tokens, idx), "Action": ""}
+        step = {"Stack": " ".join([v for v, i in stack] + [top]), "Input": " ".join(tokens[idx:]), "Action": ""}
         
         if top == look:
             step["Action"] = f"Match {look}"; idx += 1; trace.append(step)
@@ -184,53 +158,53 @@ if grammar_raw:
         elif top in fixed_g:
             rules = list(set(m_data[top][look]))
             if len(rules) == 1:
-                rhs_part = rules[0].split('->')[1].strip()
-                rhs_tokens = rhs_part.split() if rhs_part != 'ε' else []
+                rhs = rules[0].split('->')[1].strip().split()
+                if rhs == ['ε']: rhs = []
                 step["Action"] = f"Apply {rules[0]}"; trace.append(step)
-                if not rhs_tokens:
-                    node_id += 1; nid = str(node_id)
-                    dot.node(nid, 'ε', style='filled', fillcolor='#F8BBD0'); dot.edge(pid, nid)
-                else:
-                    for sym in reversed(rhs_tokens):
-                        node_id += 1; nid = str(node_id)
-                        dot.node(nid, sym, style='filled', fillcolor='#C8E6C9')
-                        dot.edge(pid, nid); stack.append((sym, nid))
+                
+                # --- التعديل الجوهري لترتيب العقد من اليسار لليمين ---
+                temp_nodes = []
+                for sym in rhs: # إنشاء العقد بالترتيب الطبيعي أولاً
+                    node_id += 1
+                    nid = str(node_id)
+                    dot.node(nid, sym, style='filled', fillcolor='#C8E6C9')
+                    dot.edge(pid, nid)
+                    temp_nodes.append((sym, nid))
+                
+                if not rhs: # معالجة الإبسلون
+                    node_id += 1; nid = str(node_id); dot.node(nid, 'ε', style='filled', fillcolor='#F8BBD0'); dot.edge(pid, nid)
+                
+                # دفع العقد للمكدس بشكل معكوس لضمان استخراجها بالترتيب الصحيح
+                for item in reversed(temp_nodes): stack.append(item)
+                
                 return idx, node_id, False, None
             else:
-                step["Action"] = "Conflict/Error"; trace.append(step)
-                return idx, node_id, True, "Rejected"
+                step["Action"] = "Error"; trace.append(step); return idx, node_id, True, "Rejected"
         else:
-            step["Action"] = f"Error: Expected {top}"; trace.append(step)
-            return idx, node_id, True, "Rejected"
+            step["Action"] = "Error"; trace.append(step); return idx, node_id, True, "Rejected"
 
     b1, b2 = st.columns([1, 4])
-    if b1.button("▶ تشغيل كامل"):
+    if b1.button("▶ تشغيل تلقائي"):
         tokens = u_input.split(); stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
         idx, node_id, trace = 0, 0, []
         dot = Digraph(); dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor='#BBDEFB')
         finished = False; status = "Rejected"
-        while not finished:
-            idx, node_id, finished, status = run_step(stack, tokens, idx, node_id, dot, trace)
+        while not finished: idx, node_id, finished, status = run_step(stack, tokens, idx, node_id, dot, trace)
         st.session_state.sim.update({'trace': trace, 'dot': dot, 'finished': True, 'status': status})
 
     if b2.button("⏭ خطوة بخطوة"):
-        if not st.session_state.sim['stack'] and not st.session_state.sim['finished']:
-            st.session_state.sim.update({'tokens': u_input.split(), 'stack': [('$', '0'), (list(fixed_g.keys())[0], '0')], 
-                                        'dot': Digraph(), 'node_id': 0, 'idx': 0, 'trace': []})
-            st.session_state.sim['dot'].node('0', list(fixed_g.keys())[0], style='filled', fillcolor='#BBDEFB')
-        
-        if not st.session_state.sim['finished']:
-            s = st.session_state.sim
+        s = st.session_state.sim
+        if not s['stack'] and not s['finished']:
+            s.update({'tokens': u_input.split(), 'stack': [('$', '0'), (list(fixed_g.keys())[0], '0')], 'dot': Digraph(), 'node_id': 0, 'idx': 0, 'trace': []})
+            s['dot'].node('0', list(fixed_g.keys())[0], style='filled', fillcolor='#BBDEFB')
+        if not s['finished']:
             s['idx'], s['node_id'], s['finished'], s['status'] = run_step(s['stack'], s['tokens'], s['idx'], s['node_id'], s['dot'], s['trace'])
 
     if st.session_state.sim['trace']:
-        st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
         st.table(pd.DataFrame(st.session_state.sim['trace']))
-        st.markdown('</div>', unsafe_allow_html=True)
         if st.session_state.sim['finished']:
             res = st.session_state.sim['status']
             st.markdown(f'<div class="status-{"accepted" if res=="Accepted" else "rejected"}">{res}</div>', unsafe_allow_html=True)
         st.graphviz_chart(st.session_state.sim['dot'])
-
 else:
-    st.markdown('<div class="info-box">👋 مرحباً دكتور حسنين. أدخل القواعد والجملة في الجانب للبدء.</div>', unsafe_allow_html=True)
+    st.info("يرجى إدخال القواعد لبدء التحليل.")

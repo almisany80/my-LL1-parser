@@ -6,35 +6,44 @@ import io
 import os
 from fpdf import FPDF
 
-# 1. التنسيق الأكاديمي (RTL)
-st.set_page_config(page_title="LL(1) Academic Studio V5.8", layout="wide")
+# 1. الإعدادات العامة ودعم اللغة العربية (RTL)
+st.set_page_config(page_title="LL(1) Compiler Studio V6.0", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
-    .ltr-table { direction: LTR !important; text-align: left !important; font-family: 'Consolas', monospace; }
-    .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-top:10px; }
-    .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin-top:10px; }
-    .grammar-box { background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-right: 5px solid #d32f2f; margin: 10px 0; font-family: monospace; }
+    .ltr-content { direction: LTR !important; text-align: left !important; font-family: 'Consolas', monospace; }
+    .status-accepted { background-color: #2e7d32; color: white; padding: 10px; border-radius: 5px; text-align: center; }
+    .status-rejected { background-color: #c62828; color: white; padding: 10px; border-radius: 5px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. فئة إنشاء تقرير PDF (دعم الرموز الرياضية)
+# 2. فئة PDF مع دعم اليونيكود (لإصلاح خطأ FPDFUnicodeEncodingException)
 class AcademicPDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        # تحميل الخط ليدعم الرموز الخاصة مثل الابسلون
+        if os.path.exists("DejaVuSans.ttf"):
+            self.add_font("DejaVu", "", "DejaVuSans.ttf", unicode=True)
+            self.font_to_use = "DejaVu"
+        else:
+            self.font_to_use = "Arial"
+
     def header(self):
-        self.set_font('Helvetica', 'B', 12)
-        self.cell(0, 10, 'LL(1) Parser Academic Report - University of Misan', 0, 1, 'C')
+        self.set_font(self.font_to_use, '', 12)
+        self.cell(0, 10, 'LL(1) Compiler Design Report', 0, 1, 'C')
         self.ln(5)
+
     def add_section(self, title, df=None, grammar=None):
-        self.set_font('Helvetica', 'B', 11)
+        self.set_font(self.font_to_use, '', 11)
         self.cell(0, 10, title, 0, 1, 'L')
-        self.set_font('Courier', '', 9)
+        self.set_font(self.font_to_use, '', 9)
         if grammar:
             for k, v in grammar.items():
+                # استبدال ε بـ e في حال وجود مشاكل خطوط مستعصية
                 line = f"{k} -> {' | '.join([' '.join(p) for p in v])}"
                 self.cell(0, 8, line, 0, 1)
         if df is not None:
-            self.set_font('Helvetica', '', 8)
             col_width = self.epw / len(df.columns)
             for col in df.columns: self.cell(col_width, 8, str(col), 1, 0, 'C')
             self.ln()
@@ -43,36 +52,28 @@ class AcademicPDF(FPDF):
                 self.ln()
         self.ln(5)
 
-# 3. وظائف المعالجة النحوية
-def remove_left_recursion(grammar):
-    new_grammar = OrderedDict()
+# 3. محرك معالجة القواعد
+def clean_grammar(grammar):
+    # إزالة التكرار الأيسر وعوامل الاشتقاق
+    new_g = OrderedDict()
     for nt, prods in grammar.items():
         recursive = [p[1:] for p in prods if p and p[0] == nt]
         non_recursive = [p for p in prods if not (p and p[0] == nt)]
         if recursive:
-            new_nt = f"{nt}'"; new_grammar[nt] = [p + [new_nt] for p in non_recursive] if non_recursive else [[new_nt]]
-            new_grammar[new_nt] = [p + [new_nt] for p in recursive] + [['ε']]
-        else: new_grammar[nt] = prods
-    return new_grammar
+            new_nt = f"{nt}'"
+            new_g[nt] = [p + [new_nt] for p in non_recursive] if non_recursive else [[new_nt]]
+            new_g[new_nt] = [p + [new_nt] for p in recursive] + [['ε']]
+        else: new_g[nt] = prods
+    return new_g
 
-def apply_left_factoring(grammar):
-    new_grammar = OrderedDict()
-    for nt, prods in grammar.items():
-        if len(prods) <= 1: new_grammar[nt] = prods; continue
-        prods.sort(); prefix = os.path.commonprefix([tuple(p) for p in prods])
-        if prefix:
-            new_nt = f"{nt}f"; new_grammar[nt] = [list(prefix) + [new_nt]]
-            suffix = [p[len(prefix):] if p[len(prefix):] else ['ε'] for p in prods]; new_grammar[new_nt] = suffix
-        else: new_grammar[nt] = prods
-    return new_grammar
-
-def get_ff(grammar):
+def get_first_follow(grammar):
     first = {nt: set() for nt in grammar}
     def get_seq_first(seq):
         res = set()
         if not seq or seq == ['ε']: return {'ε'}
         for s in seq:
-            sf = first[s] if s in grammar else {s}; res.update(sf - {'ε'})
+            sf = first[s] if s in grammar else {s}
+            res.update(sf - {'ε'})
             if 'ε' not in sf: break
         else: res.add('ε')
         return res
@@ -83,6 +84,7 @@ def get_ff(grammar):
             for p in prods: first[nt].update(get_seq_first(p))
             if len(first[nt]) > old_len: changed = True
         if not changed: break
+    
     follow = {nt: set() for nt in grammar}; follow[list(grammar.keys())[0]].add('$')
     while True:
         changed = False
@@ -99,144 +101,160 @@ def get_ff(grammar):
         if not changed: break
     return first, follow
 
-# 4. إدارة الحالة (Session State)
-if 'sim' not in st.session_state:
-    st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False, 'tokens': []}
-
+# 4. واجهة التحكم
 with st.sidebar:
-    st.header("⚙️ لوحة التحكم")
-    def_g = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
-    raw_in = st.text_area("القواعد النحوية:", def_g, height=150)
-    u_input = st.text_input("الجملة (مثلاً id + id $):", "id + id * id $")
+    st.header("⚙️ المدخلات")
+    default_grammar = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
+    raw_input = st.text_area("أدخل القواعد:", default_grammar, height=200)
+    test_sentence = st.text_input("الجملة المراد تتبعها:", "id + id * id $")
     
-    if st.button("🗑 مسح الجملة وإعادة الضبط"):
-        st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False, 'tokens': []}
+    if st.button("🗑 مسح الذاكرة وإعادة الضبط"):
+        st.session_state.clear()
         st.rerun()
 
-# 5. المعالجة الأساسية
-grammar_raw = OrderedDict()
-for line in raw_in.strip().split('\n'):
+# معالجة القواعد
+grammar = OrderedDict()
+for line in raw_input.strip().split('\n'):
     if '->' in line:
         lhs, rhs = line.split('->')
-        grammar_raw[lhs.strip()] = [opt.strip().split() for opt in rhs.split('|')]
+        grammar[lhs.strip()] = [p.strip().split() for p in rhs.split('|')]
 
-if grammar_raw:
-    fixed_g = apply_left_factoring(remove_left_recursion(grammar_raw))
-    f_sets, fo_sets = get_ff(fixed_g)
+if grammar:
+    fixed_g = clean_grammar(grammar)
+    f_sets, fo_sets = get_first_follow(fixed_g)
     
-    # بناء M-Table
+    st.header("1️⃣ التحليل النحوي الأكاديمي")
+    
+    col_g, col_ff = st.columns([1, 1])
+    with col_g:
+        st.subheader("📋 القواعد المصححة (Corrected Grammar)")
+        for k, v in fixed_g.items():
+            st.markdown(f"**{k}** → {' | '.join([' '.join(p) for p in v])}")
+            
+    with col_ff:
+        st.subheader("🔍 مجموعات First & Follow")
+        ff_data = {
+            "Non-Terminal": list(fixed_g.keys()),
+            "First Set": [f"{f_sets[n]}" for n in fixed_g],
+            "Follow Set": [f"{fo_sets[n]}" for n in fixed_g]
+        }
+        st.table(pd.DataFrame(ff_data))
+
+    # بناء جدول M-Table
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
-    m_data = {nt: {t: [] for t in terms} for nt in fixed_g}
+    m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
+    
+    # ملء الجدول (منطق التنبؤ)
     for nt, prods in fixed_g.items():
         for p in prods:
-            p_f = set()
+            # حساب First للإنتاج الحالي
+            current_f = set()
             for s in p:
-                sf = f_sets[s] if s in fixed_g else {s}; p_f.update(sf - {'ε'})
+                sf = f_sets[s] if s in fixed_g else {s}
+                current_f.update(sf - {'ε'})
                 if 'ε' not in sf: break
-            else: p_f.add('ε')
-            for a in p_f:
-                if a != 'ε': m_data[nt][a].append(f"{nt}->{' '.join(p)}")
-            if 'ε' in p_f:
-                for b in fo_sets[nt]: m_data[nt][b].append(f"{nt}->{' '.join(p)}")
-    
-    m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
-    for nt in fixed_g:
-        for t in terms:
-            rules = list(set(m_data[nt].get(t, [])))
-            m_table.at[nt, t] = rules[0] if len(rules) == 1 else (" | ".join(rules) if len(rules) > 1 else "")
+            else: current_f.add('ε')
+            
+            for a in current_f:
+                if a != 'ε': m_table.at[nt, a] = f"{nt}->{' '.join(p)}"
+            if 'ε' in current_f:
+                for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt}->{' '.join(p)}"
 
-    # عرض الجداول
-    st.header("1️⃣ الجداول الأكاديمية")
-    ff_df = pd.DataFrame({"First": [str(f_sets[n]) for n in fixed_g], "Follow": [str(fo_sets[n]) for n in fixed_g]}, index=fixed_g.keys())
-    st.table(ff_df)
-    st.subheader("M-Table (Parsing Table)")
+    st.subheader("📊 جدول الإعراب (Parsing Table)")
     st.dataframe(m_table, use_container_width=True)
 
-    # 6. محرك التتبع (Tracing Engine)
-    def run_step(stack, tokens, idx, node_id, dot, trace):
-        if not stack: return idx, node_id, True, "Accepted"
-        top, pid = stack.pop(); look = tokens[idx] if idx < len(tokens) else '$'
-        
-        # التأكد من بقاء الرموز الرياضية نصوصاً صريحة
-        current_stack_str = " ".join([v for v, i in stack] + [top])
-        current_input_str = " ".join(tokens[idx:])
-        step = {"Stack": current_stack_str, "Input": current_input_str, "Action": ""}
-        
-        if top == look:
-            step["Action"] = f"Match {look}"; idx += 1; trace.append(step)
-            return idx, node_id, (top == '$'), "Accepted" if top == '$' else None
-        elif top in fixed_g:
-            rules = list(set(m_data[top].get(look, [])))
-            if len(rules) == 1:
-                rhs = rules[0].split('->')[1].strip().split()
-                if rhs == ['ε']: rhs = []
-                step["Action"] = f"Apply {rules[0]}"; trace.append(step)
-                temp = []
-                for sym in rhs:
-                    node_id += 1; nid = str(node_id)
-                    dot.node(nid, f'"{sym}"', style='filled', fillcolor='#C8E6C9') # رسم رياضي
-                    dot.edge(pid, nid); temp.append((sym, nid))
-                if not rhs:
-                    node_id += 1; nid = str(node_id); dot.node(nid, '"ε"', style='filled', fillcolor='#F8BBD0'); dot.edge(pid, nid)
-                for item in reversed(temp): stack.append(item)
-                return idx, node_id, False, None
-            else:
-                step["Action"] = f"Error: No rule for ({top}, {look})"; trace.append(step); return idx, node_id, True, "Rejected"
-        else:
-            step["Action"] = f"Error: Expected {top}"; trace.append(step); return idx, node_id, True, "Rejected"
-
-    st.header("2️⃣ المحاكاة (Simulation)")
-    col1, col2 = st.columns([1, 4])
+    # 5. محاكاة التتبع (إصلاح مشكلة النقاط والاقتباسات)
+    st.header("2️⃣ المحاكاة (Parsing Trace)")
     
-    # زر التشغيل التلقائي
-    if col1.button("▶ تشغيل تلقائي"):
-        st.session_state.sim.update({'tokens': u_input.split(), 'stack': [('$', '0'), (list(fixed_g.keys())[0], '0')], 
-                                    'dot': Digraph(), 'node_id': 0, 'idx': 0, 'trace': [], 'finished': False})
-        st.session_state.sim['dot'].node('0', f'"{list(fixed_g.keys())[0]}"', style='filled', fillcolor='#BBDEFB')
-        s = st.session_state.sim
-        while not s['finished']:
-            s['idx'], s['node_id'], s['finished'], s['status'] = run_step(s['stack'], s['tokens'], s['idx'], s['node_id'], s['dot'], s['trace'])
+    if 'step' not in st.session_state:
+        st.session_state.step = 0
+        st.session_state.trace = []
+        st.session_state.stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
+        st.session_state.dot = Digraph()
+        st.session_state.dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor='lightblue') # بدون اقتباسات
+        st.session_state.finished = False
 
-    # زر خطوة بخطوة
-    if col2.button("⏭ خطوة بخطوة"):
-        s = st.session_state.sim
-        if not s['stack'] and not s['finished']:
-            s.update({'tokens': u_input.split(), 'stack': [('$', '0'), (list(fixed_g.keys())[0], '0')], 
-                     'dot': Digraph(), 'node_id': 0, 'idx': 0, 'trace': []})
-            s['dot'].node('0', f'"{list(fixed_g.keys())[0]}"', style='filled', fillcolor='#BBDEFB')
+    def run_simulation_step():
+        s = st.session_state
+        if s.finished or not s.stack: return
         
-        if not s['finished']:
-            s['idx'], s['node_id'], s['finished'], s['status'] = run_step(s['stack'], s['tokens'], s['idx'], s['node_id'], s['dot'], s['trace'])
+        tokens = test_sentence.split()
+        idx = sum(1 for x in s.trace if "Match" in x['Action'])
+        look = tokens[idx] if idx < len(tokens) else '$'
+        top, pid = s.stack.pop()
+        
+        current_step = {
+            "Stack": " ".join([v for v, i in s.stack] + [top]),
+            "Input": " ".join(tokens[idx:]), # تنظيف المدخلات من أي رموز إضافية
+            "Action": ""
+        }
 
-    # عرض النتائج
-    if st.session_state.sim['trace']:
-        st.markdown("**جدول تتبع الاشتقاق (Trace Table):**")
-        st.table(pd.DataFrame(st.session_state.sim['trace']))
-        st.graphviz_chart(st.session_state.sim['dot'])
-        if st.session_state.sim['finished']:
-            st.markdown(f'<div class="status-{st.session_state.sim["status"].lower()}">{st.session_state.sim["status"]}</div>', unsafe_allow_html=True)
+        if top == look:
+            current_step["Action"] = f"Match {look}"
+            if top == '$': s.finished = True; s.status = "Accepted"
+        elif top in fixed_g:
+            rule = m_table.at[top, look]
+            if rule:
+                current_step["Action"] = f"Apply {rule}"
+                rhs = rule.split('->')[1].split()
+                if rhs == ['ε']:
+                    nid = f"eps_{pid}_{s.step}"
+                    s.dot.node(nid, "ε", shape='none')
+                    s.dot.edge(pid, nid)
+                else:
+                    temp = []
+                    for sym in rhs:
+                        s.step += 1
+                        nid = str(s.step)
+                        s.dot.node(nid, sym, style='filled', fillcolor='lightgreen') # بدون اقتباسات
+                        s.dot.edge(pid, nid)
+                        temp.append((sym, nid))
+                    for item in reversed(temp): s.stack.append(item)
+            else:
+                current_step["Action"] = "❌ Error"; s.finished = True; s.status = "Rejected"
+        else:
+            current_step["Action"] = "❌ Error"; s.finished = True; s.status = "Rejected"
+        
+        s.trace.append(current_step)
 
-    # 7. تصدير التقارير (PDF & Excel)
-    st.header("3️⃣ تصدير التقارير")
-    cp, ce = st.columns(2)
-    with cp:
-        if st.button("📄 تصدير تقرير PDF"):
-            pdf = AcademicPDF(); pdf.add_page()
-            pdf.add_section("1. Corrected Grammar", grammar=fixed_g)
-            pdf.add_section("2. First & Follow Sets", df=ff_df.reset_index())
-            pdf.add_section("3. M-Table", df=m_table.reset_index())
-            if st.session_state.sim['trace']:
-                pdf.add_section("4. Execution Trace", df=pd.DataFrame(st.session_state.sim['trace']))
-            st.download_button("📥 تحميل ملف PDF", pdf.output(), "LL1_Parser_Report.pdf", "application/pdf")
+    c1, c2 = st.columns(2)
+    if c1.button("⏭ خطوة تالية"): run_simulation_step()
+    if c2.button("▶ تشغيل كامل"):
+        while not st.session_state.finished: run_simulation_step()
 
-    with ce:
+    if st.session_state.trace:
+        st.markdown('<div class="ltr-content">', unsafe_allow_html=True)
+        st.table(pd.DataFrame(st.session_state.trace))
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.graphviz_chart(st.session_state.dot)
+        
+        if st.session_state.finished:
+            st.markdown(f'<div class="status-{st.session_state.status.lower()}">{st.session_state.status}</div>', unsafe_allow_html=True)
+
+    # 6. تصدير التقارير (حل مشكلة اليونيكود)
+    st.header("3️⃣ تصدير النتائج")
+    col_pdf, col_xls = st.columns(2)
+    
+    with col_pdf:
+        if st.button("📄 توليد تقرير PDF"):
+            try:
+                pdf = AcademicPDF()
+                pdf.add_page()
+                pdf.add_section("1. Corrected Grammar", grammar=fixed_g)
+                pdf.add_section("2. First & Follow Sets", df=pd.DataFrame(ff_data))
+                pdf.add_section("3. Parsing Table", df=m_table.reset_index())
+                if st.session_state.trace:
+                    pdf.add_section("4. Execution Trace", df=pd.DataFrame(st.session_state.trace))
+                
+                st.download_button("📥 تحميل PDF", pdf.output(), "Academic_Report.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"حدث خطأ أثناء توليد الـ PDF: {str(e)}")
+
+    with col_xls:
         output = io.BytesIO()
-        try:
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                ff_df.to_excel(writer, sheet_name='First_Follow')
-                m_table.to_excel(writer, sheet_name='M_Table')
-                if st.session_state.sim['trace']:
-                    pd.DataFrame(st.session_state.sim['trace']).to_excel(writer, sheet_name='Trace', index=False)
-            st.download_button("📥 تحميل ملف Excel", output.getvalue(), "LL1_Data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        except:
-            st.warning("يرجى التأكد من تثبيت مكتبة xlsxwriter لتصدير الإكسل.")
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            pd.DataFrame(ff_data).to_excel(writer, sheet_name='First_Follow', index=False)
+            m_table.to_excel(writer, sheet_name='M_Table')
+            if st.session_state.trace:
+                pd.DataFrame(st.session_state.trace).to_excel(writer, sheet_name='Trace', index=False)
+        st.download_button("📥 تحميل Excel", output.getvalue(), "Compiler_Data.xlsx")

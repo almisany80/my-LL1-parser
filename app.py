@@ -109,7 +109,8 @@ class AcademicPDF(FPDF):
         if os.path.exists("DejaVuSans.ttf"):
             self.add_font("DejaVu", "", "DejaVuSans.ttf")
             self.f_name = "DejaVu"
-        else: self.f_name = "Arial"
+        else:
+            self.f_name = "Arial"
 
     def header(self):
         self.set_font(self.f_name, "", 16)
@@ -121,19 +122,34 @@ class AcademicPDF(FPDF):
         self.set_fill_color(240, 240, 240)
         self.cell(0, 10, title, ln=True, fill=True)
         self.ln(2)
+        
         if grammar:
             self.set_font(self.f_name, "", 10)
             for k, v in grammar.items():
-                line = f"{k} \u2192 {' | '.join([' '.join(p) for p in v])}"
+                line = f"{k} -> {' | '.join([' '.join(p) for p in v])}"
                 self.cell(0, 8, line, ln=True)
+        
         elif df is not None:
             self.set_font(self.f_name, "", 8)
             cw = self.epw / (len(df.columns) + 1)
-            self.cell(cw, 8, "NT", 1); [self.cell(cw, 8, str(c), 1) for c in df.columns]; self.ln()
+            
+            # كتابة رؤوس الجدول
+            self.cell(cw, 8, "NT", 1)
+            for c in df.columns:
+                self.cell(cw, 8, str(c), 1)
+            self.ln()
+            
+            # كتابة محتوى الجدول (تأكد من عدم استخدام List Comprehension هنا)
             for i, r in df.iterrows():
-                if self.get_y() > 250: self.add_page()
-                self.cell(cw, 7, str(i), 1); [self.cell(cw, 7, str(v), 1) for v in r]; self.ln()
+                if self.get_y() > 250: 
+                    self.add_page()
+                self.cell(cw, 7, str(i), 1)
+                for v in r:
+                    # نضع النتيجة في متغير مهمل لضمان عدم طباعته في الواجهة
+                    _ = self.cell(cw, 7, str(v), 1)
+                self.ln()
         self.ln(5)
+
 
 # --- 4. واجهة المستخدم والمحاكاة ---
 
@@ -251,5 +267,6 @@ if grammar_raw:
         with pd.ExcelWriter(out, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='Sets'); m_table.to_excel(writer, sheet_name='M_Table')
         st.download_button("📥 تحميل Excel", out.getvalue(), "LL1_Tables.xlsx")
+
 
 

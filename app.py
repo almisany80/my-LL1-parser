@@ -8,26 +8,26 @@ import io
 import os
 from fpdf import FPDF
 
-# 1. التنسيق العام (واجهة عربية RTL مع جداول إنجليزية LTR) --- #
+# 1. التنسيق العام --- #
 st.set_page_config(page_title="LL(1) Academic Studio", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
     .ltr-table { direction: LTR !important; text-align: left !important; font-family: sans-serif; }
-    .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; margin: 10px 0; }
-    .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; margin: 10px 0; }
+    .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; }
+    .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
 LEVEL_COLORS = ["#BBDEFB", "#C8E6C9", "#FFF9C4", "#F8BBD0", "#E1BEE7", "#B2EBF2"]
 
-# 2. منطق التحليل (LL1 Logic) --- #
+# 2. منطق التحليل --- #
 def auto_fix_grammar(grammar):
     temp_g = OrderedDict()
     for nt, prods in grammar.items():
-        rec = [p[1:] for p in prods if p and p[0] == nt]
-        non_rec = [p for p in prods if not (p and p[0] == nt)]
+        rec = [p[1:] for p in prods if p and p == nt]
+        non_rec = [p for p in prods if not (p and p == nt)]
         if rec:
             new_nt = f"{nt}'"
             temp_g[nt] = [p + [new_nt] for p in non_rec] if non_rec else [[new_nt]]
@@ -67,16 +67,15 @@ def get_first_follow(grammar):
                         if 'ε' in fb: follow[B].update(follow[nt])
     return first, follow
 
-# 3. محرك تقارير PDF (إصلاح شامل للخطوط والظهور) --- #
+# 3. محرك تقارير PDF --- #
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
-        # إعداد الخط الأساسي لدعم الرموز ε واللغة العربية
         if os.path.exists("DejaVuSans.ttf"):
             self.add_font("DejaVu", "", "DejaVuSans.ttf")
             self.f_name = "DejaVu"
         else:
-            self.f_name = "Arial" # احتياطي في حال غياب الملف
+            self.f_name = "Arial"
 
     def header(self):
         self.set_font(self.f_name, "", 14)
@@ -88,32 +87,21 @@ class AcademicPDF(FPDF):
         self.set_fill_color(230, 230, 230)
         _ = self.cell(0, 10, f" {title}", ln=True, fill=True)
         self.ln(2)
-        
         if grammar:
-            self.set_font(self.f_name, "", 10) # استخدام DejaVu لدعم ε
+            self.set_font(self.f_name, "", 10)
             for k, v in grammar.items():
-                line = f"{k} -> {' | '.join([' '.join(p) for p in v])}"
-                _ = self.cell(0, 8, line, ln=True)
+                _ = self.cell(0, 8, f"{k} -> {' | '.join([' '.join(p) for p in v])}", ln=True)
         elif df is not None:
-            self.set_font(self.f_name, "", 9)
+            self.set_font(self.f_name, "", 8)
             cols = list(df.columns)
-            # ضبط عرض الأعمدة
             cw = self.epw / (len(cols) + (0 if "Stack" in cols else 1))
-            
-            # عناوين الجدول
-            if "Stack" not in cols: 
-                _ = self.cell(cw, 8, "NT", 1, 0, 'C')
-            for c in cols:
-                _ = self.cell(cw, 8, str(c), 1, 0, 'C')
+            if "Stack" not in cols: _ = self.cell(cw, 8, "NT", 1, 0, 'C')
+            for c in cols: _ = self.cell(cw, 8, str(c), 1, 0, 'C')
             self.ln()
-
-            # بيانات الجدول
             for idx, r in df.iterrows():
                 if self.get_y() > 250: self.add_page()
-                if "Stack" not in cols: 
-                    _ = self.cell(cw, 7, str(idx), 1, 0, 'C')
-                for v in r:
-                    _ = self.cell(cw, 7, str(v), 1, 0, 'L')
+                if "Stack" not in cols: _ = self.cell(cw, 7, str(idx), 1, 0, 'C')
+                for v in r: _ = self.cell(cw, 7, str(v), 1, 0, 'L')
                 self.ln()
         self.ln(5)
 
@@ -133,6 +121,12 @@ if grammar_raw:
     fixed_g = auto_fix_grammar(grammar_raw)
     f_sets, fo_sets = get_first_follow(fixed_g)
     
+    # جدول First & Follow
+    ff_df = pd.DataFrame({
+        "First": [", ".join(sorted(list(s))) for s in f_sets.values()],
+        "Follow": [", ".join(sorted(list(s))) for s in fo_sets.values()]
+    }, index=f_sets.keys())
+
     # بناء M-Table
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
@@ -149,29 +143,30 @@ if grammar_raw:
             if 'ε' in first_p:
                 for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt} -> {' '.join(p)}"
 
-    st.header("2️⃣ & 3️⃣ جداول التحليل")
+    st.header("2️⃣ جداول المجموعات (First & Follow)")
+    st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
+    st.table(ff_df)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.header("3️⃣ جدول M-Table")
     st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
     st.dataframe(m_table, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.header("4️⃣ & 5️⃣ محاكاة الجملة")
-    u_input = st.text_input("أدخل الجملة (افصل بمسافة):", "id + id * id $")
-
-    if 'sim' not in st.session_state:
-        st.session_state.sim = {'trace': [], 'dot': None, 'done': False}
+    st.header("4️⃣ & 5️⃣ المحاكاة")
+    u_input = st.text_input("أدخل الجملة:", "id + id * id $")
+    if 'sim' not in st.session_state: st.session_state.sim = {'trace': [], 'dot': None}
 
     c1, c2, _ = st.columns([1, 1, 2])
-    if c1.button("🔄 إعادة ضبط"):
-        st.session_state.sim = {'trace': [], 'dot': None, 'done': False}
+    if c1.button("🔄 ضبط"):
+        st.session_state.sim = {'trace': [], 'dot': None}
         st.rerun()
 
     if c2.button("▶ تشغيل"):
-        tokens = u_input.split()
-        start_node = list(fixed_g.keys())[0]
-        stack = [('$', '0'), (start_node, '0')]
-        idx, node_id, trace = 0, 0, []
+        tokens, idx, node_id, trace = u_input.split(), 0, 0, []
+        stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
         dot = Digraph()
-        dot.node('0', start_node, style='filled', fillcolor=LEVEL_COLORS[0])
+        dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor=LEVEL_COLORS[0])
         
         while stack:
             top, pid = stack.pop()
@@ -196,17 +191,12 @@ if grammar_raw:
                         if sym != 'ε': new_nodes.append((sym, nid))
                     for n in reversed(new_nodes): stack.append(n)
                 else:
-                    step["Action"] = "❌ Error"
-                    trace.append(step)
-                    break
+                    step["Action"] = "❌ Error"; trace.append(step); break
             else:
-                step["Action"] = "❌ Error"
-                trace.append(step)
-                break
+                step["Action"] = "❌ Error"; trace.append(step); break
             trace.append(step)
-        
-        st.session_state.sim = {'trace': trace, 'dot': dot, 'done': True}
-        
+        st.session_state.sim = {'trace': trace, 'dot': dot}
+
     if st.session_state.sim['trace']:
         st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
         st.table(pd.DataFrame(st.session_state.sim['trace']))
@@ -214,19 +204,26 @@ if grammar_raw:
         st.graphviz_chart(st.session_state.sim['dot'])
 
     st.header("6️⃣ تحميل التقارير")
-    if st.button("📄 توليد PDF الأكاديمي"):
-        pdf = AcademicPDF()
-        pdf.add_page()
-        pdf.add_section("1. Corrected Grammar Rules", grammar=fixed_g)
-        pdf.add_section("2. M-Parsing Table", df=m_table)
-        
-        if st.session_state.sim['trace']:
-            pdf.add_section("3. Simulation Trace", df=pd.DataFrame(st.session_state.sim['trace']))
-            if st.session_state.sim['dot']:
+    cpdf, cxls = st.columns(2)
+    with cpdf:
+        if st.button("📄 توليد PDF الأكاديمي"):
+            pdf = AcademicPDF()
+            pdf.add_page()
+            pdf.add_section("1. Corrected Grammar Rules", grammar=fixed_g)
+            pdf.add_section("2. First & Follow Sets", df=ff_df)
+            pdf.add_section("3. M-Parsing Table", df=m_table)
+            if st.session_state.sim['trace']:
+                pdf.add_section("4. Simulation Trace", df=pd.DataFrame(st.session_state.sim['trace']))
                 img_data = st.session_state.sim['dot'].pipe(format='png')
                 pdf.add_page()
-                pdf.set_font(pdf.f_name, "", 14)
-                _ = pdf.cell(0, 10, "4. Final Parse Tree Visual", ln=True)
                 pdf.image(io.BytesIO(img_data), w=pdf.epw)
-        
-        st.download_button("📥 تحميل ملف PDF", bytes(pdf.output()), "LL1_Academic_Report.pdf", "application/pdf")
+            st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Report.pdf")
+
+    with cxls:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            ff_df.to_excel(writer, sheet_name='First_Follow')
+            m_table.to_excel(writer, sheet_name='M_Table')
+            if st.session_state.sim['trace']:
+                pd.DataFrame(st.session_state.sim['trace']).to_excel(writer, sheet_name='Simulation_Trace', index=False)
+        st.download_button("📥 تحميل Excel", output.getvalue(), "LL1_Data.xlsx")

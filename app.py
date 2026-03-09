@@ -29,7 +29,6 @@ def remove_left_recursion(grammar):
     for nt, prods in grammar.items():
         recursive = [p[1:] for p in prods if p and p[0] == nt]
         non_recursive = [p for p in prods if not (p and p[0] == nt)]
-        
         if recursive:
             new_nt = f"{nt}'"
             new_grammar[nt] = [p + [new_nt] for p in non_recursive] if non_recursive else [[new_nt]]
@@ -44,10 +43,8 @@ def apply_left_factoring(grammar):
         if len(prods) <= 1:
             new_grammar[nt] = prods
             continue
-        
         prods.sort()
         prefix = os.path.commonprefix([tuple(p) for p in prods])
-        
         if prefix:
             new_nt = f"{nt}f"
             prefix = list(prefix)
@@ -55,7 +52,7 @@ def apply_left_factoring(grammar):
             suffix = [p[len(prefix):] if p[len(prefix):] else ['ε'] for p in prods]
             new_grammar[new_nt] = suffix
         else:
-             new_grammar[nt] = prods
+            new_grammar[nt] = prods
     return new_grammar
 
 def get_first_follow(grammar):
@@ -117,4 +114,96 @@ class AcademicPDF(FPDF):
             self.set_font(self.f_name, "", 8)
             cols = list(df.columns)
             cw = self.epw / (len(cols) + (0 if "Stack" in cols else 1))
-            if "Stack" not in cols: _ = self.cell(cw,
+            # إصلاح القوس المفتوح لضمان دقة ملف PDF
+            if "Stack" not in cols: 
+                _ = self.cell(cw, 8, "NT", 1, 0, 'C')
+            for c in cols: 
+                _ = self.cell(cw, 8, str(c), 1, 0, 'C')
+            self.ln()
+            for _, r in df.iterrows():
+                if self.get_y() > 250: self.add_page()
+                if "Stack" not in cols: _ = self.cell(cw, 7, str(r.name), 1, 0, 'C')
+                for v in r: _ = self.cell(cw, 7, str(v), 1, 0, 'L')
+                self.ln()
+        self.ln(5)
+
+# 4. واجهة المستخدم --- #
+with st.sidebar:
+    st.header("⚙️ المدخلات")
+    raw_in = st.text_area("أدخل القواعد:", "E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id", height=150)
+    speed = st.slider("سرعة المحاكاة:", 0.1, 2.0, 0.5)
+
+grammar_raw = OrderedDict()
+for line in raw_in.split('\n'):
+    if '->' in line:
+        lhs, rhs = line.split('->')
+        grammar_raw[lhs.strip()] = [opt.strip().split() for opt in rhs.split('|')]
+
+if grammar_raw:
+    st.header("1️⃣ التحقق والتصحيح (Verification)")
+    g_step1 = remove_left_recursion(grammar_raw)
+    fixed_g = apply_left_factoring(g_step1)
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("القواعد الأصلية:")
+        for k, v in grammar_raw.items():
+            st.markdown(f'<div class="grammar-box ltr-table">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
+    with col_b:
+        st.subheader("القواعد المصححة:")
+        for k, v in fixed_g.items():
+            st.markdown(f'<div class="grammar-box ltr-table" style="border-right-color:#2e7d32">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
+
+    f_sets, fo_sets = get_first_follow(fixed_g)
+    ff_df = pd.DataFrame({
+        "First": [", ".join(sorted(list(s))) for s in f_sets.values()],
+        "Follow": [", ".join(sorted(list(s))) for s in fo_sets.values()]
+    }, index=f_sets.keys())
+
+    terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
+    m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
+    for nt, prods in fixed_g.items():
+        for p in prods:
+            first_p = set()
+            for s in p:
+                sf = f_sets[s] if s in fixed_g else {s}
+                first_p.update(sf - {'ε'})
+                if 'ε' not in sf: break
+            else: first_p.add('ε')
+            for a in first_p:
+                if a != 'ε': m_table.at[nt, a] = f"{nt} -> {' '.join(p)}"
+            if 'ε' in first_p:
+                for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt} -> {' '.join(p)}"
+
+    st.header("2️⃣ جداول مجموعات First & Follow")
+    st.markdown('<div class="ltr-table">', unsafe_allow_html=True); st.table(ff_df); st.markdown('</div>', unsafe_allow_html=True)
+    st.header("3️⃣ مصفوفة الإعراب (M-Table)")
+    st.markdown('<div class="ltr-table">', unsafe_allow_html=True); st.dataframe(m_table, use_container_width=True); st.markdown('</div>', unsafe_allow_html=True)
+
+    # 4 & 5. تتبع الجملة ورسم الشجرة --- #
+    st.header("4️⃣ & 5️⃣ تتبع الجملة ورسم الشجرة التفاعلية")
+    u_input = st.text_input("أدخل الجملة:", "id + id * id $")
+    
+    # تهيئة الذاكرة للحفاظ على النتائج بعد الضغط على الأزرار
+    if 'sim' not in st.session_state: 
+        st.session_state.sim = {'trace': [], 'dot': None, 'status': None}
+
+    # صف الأزرار (التشغيل والضبط)
+    c_run, c_reset = st.columns([1, 8])
+    run_btn = c_run.button("▶ تشغيل")
+    
+    # جزء الكود الخاص بإعادة الضبط المقتبس من code1.txt
+    if c_reset.button("🔄 ضبط"):
+        st.session_state.sim = {'trace': [], 'dot': None, 'status': None}
+        st.rerun()
+
+    if run_btn:
+        tokens, idx, node_id, trace = u_input.split(), 0, 0, []
+        stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
+        dot = Digraph()
+        dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor=LEVEL_COLORS[0])
+        final_status = "Rejected" # الافتراضي هو الرفض حتى يتم القبول
+        
+        while stack:
+            top, pid = stack.pop()
+            look = tokens

@@ -101,7 +101,7 @@ class AcademicPDF(FPDF):
 
     def header(self):
         self.set_font(self.f_name, "", 14)
-        self.cell(0, 10, "LL(1) Parser Academic Report", ln=True, align="C")
+        self.cell(0, 10, "LL(1) Parser Report", ln=True, align="C")
         self.ln(5)
 
     def add_section(self, title, df=None, grammar=None):
@@ -246,6 +246,7 @@ if grammar_raw:
             m_table.to_excel(w, sheet_name='M_Table')
             if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
         st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
+
 
 
 

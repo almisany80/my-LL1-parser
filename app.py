@@ -107,7 +107,7 @@ class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
         if os.path.exists("DejaVuSans.ttf"):
-            self.add_font("DejaVu", "", "DejaVuSans.ttf", unicode=True)
+            self.add_font("DejaVu", "", "DejaVuSans.ttf")
             self.f_name = "DejaVu"
         else: self.f_name = "Arial"
 
@@ -250,3 +250,4 @@ if grammar_raw:
         with pd.ExcelWriter(out, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='Sets'); m_table.to_excel(writer, sheet_name='M_Table')
         st.download_button("📥 تحميل Excel", out.getvalue(), "LL1_Tables.xlsx")
+

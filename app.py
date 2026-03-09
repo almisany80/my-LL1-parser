@@ -181,6 +181,7 @@ if grammar_raw:
     st.header("2️⃣ جداول مجموعات First & Follow")
     st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
     st.table(ff_df)
+    st.header("3️⃣ مصفوفة الإعراب (M-Table)")
     st.dataframe(m_table, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -245,6 +246,7 @@ if grammar_raw:
             m_table.to_excel(w, sheet_name='M_Table')
             if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
         st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
+
 
 
 

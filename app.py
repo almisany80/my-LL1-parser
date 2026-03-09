@@ -164,7 +164,7 @@ if grammar_raw:
     }, index=f_sets.keys())
 
     # بناء M-Table
-    st.markdown('<h2 class="section-title">3️⃣ مصفوفة الإعراب (M-Table)</h2>', unsafe_allow_html=True)
+    
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
     for nt, prods in fixed_g.items():
@@ -179,7 +179,7 @@ if grammar_raw:
                 if a != 'ε': m_table.at[nt, a] = f"{nt} -> {' '.join(p)}"
             if 'ε' in first_p:
                 for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt} -> {' '.join(p)}"
-
+    st.markdown('<h2 class="section-title">3️⃣ مصفوفة الإعراب (M-Table)</h2>', unsafe_allow_html=True)
     st.header("2️⃣ & 3️⃣ جداول التحليل")
     st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
     st.table(ff_df)
@@ -247,4 +247,5 @@ if grammar_raw:
             m_table.to_excel(w, sheet_name='M_Table')
             if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
         st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
+
 

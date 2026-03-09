@@ -7,7 +7,7 @@ import time
 import io
 from fpdf import FPDF
 
-# --- 1. إعدادات الصفحة والتنسيق ---
+# --- 1. إعدادات الصفحة والتنسيق العربي ---
 st.set_page_config(page_title="LL(1) Pro Studio", layout="wide")
 
 st.markdown("""
@@ -16,12 +16,12 @@ st.markdown("""
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
     .ltr-text { direction: LTR !important; text-align: left !important; font-family: monospace; font-size: 16px; }
     .stTable, .stDataFrame { direction: LTR !important; }
-    .status-accepted { color: #2e7d32; font-weight: bold; font-size: 20px; }
-    .status-rejected { color: #c62828; font-weight: bold; font-size: 20px; }
+    .status-accepted { color: #2e7d32; font-weight: bold; font-size: 24px; padding: 10px; border: 2px solid #2e7d32; border-radius: 10px; text-align: center; }
+    .status-rejected { color: #c62828; font-weight: bold; font-size: 24px; padding: 10px; border: 2px solid #c62828; border-radius: 10px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. وظائف التحليل المنطقي ---
+# --- 2. وظائف التحليل المنطقي (First, Follow, M-Table) ---
 
 def get_first(grammar):
     first = {nt: set() for nt in grammar}
@@ -34,7 +34,6 @@ def get_first(grammar):
             if 'ε' not in sym_f: break
         else: res.add('ε')
         return res
-
     changed = True
     while changed:
         changed = False
@@ -57,7 +56,6 @@ def get_follow(grammar, start_symbol, first):
             if 'ε' not in sym_f: break
         else: res.add('ε')
         return res
-
     changed = True
     while changed:
         changed = False
@@ -81,22 +79,17 @@ def build_m_table(grammar, first, follow):
     if '$' in terms: terms.remove('$')
     terms.append('$')
     table = {nt: {t: "" for t in terms} for nt in grammar}
-    def get_seq_first(sequence):
-        res = set()
-        if not sequence or sequence == ['ε']: return {'ε'}
-        for sym in sequence:
-            sym_f = first[sym] if sym in grammar else {sym}
-            res.update(sym_f - {'ε'})
-            if 'ε' not in sym_f: break
-        else: res.add('ε')
-        return res
-
     for nt, prods in grammar.items():
         for prod in prods:
-            p_first = get_seq_first(prod)
-            for a in p_first:
+            pf = set()
+            for s in prod:
+                sf = first[s] if s in grammar else {s}
+                pf.update(sf - {'ε'})
+                if 'ε' not in sf: break
+            else: pf.add('ε')
+            for a in pf:
                 if a != 'ε': table[nt][a] = f"{nt} -> {' '.join(prod)}"
-            if 'ε' in p_first:
+            if 'ε' in pf:
                 for b in follow[nt]: table[nt][b] = f"{nt} -> {' '.join(prod)}"
     return pd.DataFrame(table).T[terms]
 
@@ -111,17 +104,17 @@ def parse_grammar_flexible(raw_text):
             grammar[lhs] = [[s.strip() for s in re.findall(r"[A-Z]'?|[a-z]|ε|id|\(|\)|\+|\*|\-", opt)] for opt in options]
     return grammar
 
-# --- 3. محرك تقارير PDF المحسن ---
+# --- 3. محرك تقارير PDF المطور (إصلاح خطأ col_width) ---
 
 class PDFReport(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 14)
-        self.cell(0, 10, "LL(1) Analysis Report", ln=True, align="C")
+        self.cell(0, 10, "LL(1) Analysis Academic Report", ln=True, align="C")
         self.ln(5)
 
     def safe_text(self, text):
-        # استبدال الرموز غير المدعومة لمنع الخطأ
-        return str(text).encode('latin-1', 'replace').decode('latin-1').replace('?', 'eps').replace('→', '->').replace('ε', 'epsilon')
+        # استبدال الرموز غير المدعومة بالخط القياسي
+        return str(text).replace('→', '->').replace('ε', 'epsilon').replace('$', 'USD').encode('ascii', 'ignore').decode('ascii')
 
     def add_section(self, title):
         self.set_font("Helvetica", "B", 11)
@@ -132,14 +125,17 @@ class PDFReport(FPDF):
     def add_data_table(self, df, title):
         self.add_section(title)
         self.set_font("Helvetica", "", 8)
+        # إصلاح الخطأ هنا: استخدام w بدلاً من col_width
         col_w = self.epw / (len(df.columns) + 1)
-        self.cell(col_w, 8, "NT", 1)
-        for col in df.columns: self.cell(col_width=col_w, h=8, txt=self.safe_text(col), border=1)
+        self.cell(w=col_w, h=8, txt="NT", border=1)
+        for col in df.columns: 
+            self.cell(w=col_w, h=8, txt=self.safe_text(col), border=1)
         self.ln()
         for i, row in df.iterrows():
             if self.get_y() > 260: self.add_page()
-            self.cell(col_w, 7, self.safe_text(i), 1)
-            for val in row: self.cell(col_w, 7, self.safe_text(val), 1)
+            self.cell(w=col_w, h=7, txt=self.safe_text(i), border=1)
+            for val in row: 
+                self.cell(w=col_w, h=7, txt=self.safe_text(val), border=1)
             self.ln()
         self.ln(4)
 
@@ -171,12 +167,12 @@ if grammar_raw:
     st.dataframe(m_table, use_container_width=True)
 
     st.header("4️⃣ & 5️⃣ المحاكاة")
-    user_input = st.text_input("أدخل الجملة للتحليل (مثال: a b c d e $):", "c $")
+    user_input = st.text_input("أدخل الجملة للتحليل (تذكر رمز $ في النهاية والمسافات):", "c $")
     
     if st.button("▶️ ابدأ التشغيل التلقائي"):
         tokens = user_input.split()
         if not user_input.strip().endswith('$'):
-            st.warning("يرجى وضع مسافة ثم رمز $ في نهاية الجملة.")
+            st.warning("يرجى إنهاء الجملة برمز $ لضمان الدقة.")
         else:
             st.session_state.sim = {'stack': [('$', -1), (start_node_sym, 0)], 'idx': 0, 'dot': Digraph(), 'trace': [], 'done': False, 'node_id': 0}
             st.session_state.sim['dot'].attr(rankdir='TD')
@@ -192,21 +188,23 @@ if grammar_raw:
                     
                     if top == lookahead:
                         step["Action"] = f"Match {lookahead}"; s['idx'] += 1
-                        if top == '$': s['done'] = True
                     elif top in grammar_raw:
-                        rule = m_table.at[top, lookahead]
-                        if rule:
-                            rhs = rule.split('->')[1].strip().split()
-                            new_nodes = []
-                            for sym in rhs:
-                                s['node_id'] += 1
-                                nid = str(s['node_id'])
-                                s['dot'].node(nid, sym, style='filled', fillcolor="#C8E6C9" if sym in grammar_raw else "#FFF9C4")
-                                s['dot'].edge(str(pid), nid)
-                                if sym != 'ε': new_nodes.append((sym, nid))
-                            for n in reversed(new_nodes): s['stack'].append(n)
-                            step["Action"] = f"Apply {rule}"
-                        else:
+                        try:
+                            rule = m_table.at[top, lookahead]
+                            if rule:
+                                rhs = rule.split('->')[1].strip().split()
+                                new_nodes = []
+                                for sym in rhs:
+                                    s['node_id'] += 1
+                                    nid = str(s['node_id'])
+                                    s['dot'].node(nid, sym, style='filled', fillcolor="#C8E6C9" if sym in grammar_raw else "#FFF9C4")
+                                    s['dot'].edge(str(pid), nid)
+                                    if sym != 'ε': new_nodes.append((sym, nid))
+                                for n in reversed(new_nodes): s['stack'].append(n)
+                                step["Action"] = f"Apply {rule}"
+                            else:
+                                step["Action"] = "Error"; s['done'] = True
+                        except:
                             step["Action"] = "Error"; s['done'] = True
                     else:
                         step["Action"] = "Error"; s['done'] = True
@@ -215,15 +213,15 @@ if grammar_raw:
                     tree_area.graphviz_chart(s['dot'])
                     trace_area.table(pd.DataFrame(s['trace']))
                     time.sleep(speed)
-                    if not s['stack']: s['done'] = True
+                    if not s['stack'] or (top == '$' and lookahead == '$'): s['done'] = True
                 else: s['done'] = True
 
-            # --- التحقق من حالة القبول ---
-            is_accepted = (s['idx'] == len(tokens)) or (s['idx'] == len(tokens)-1 and tokens[-1] == '$')
-            if is_accepted and any("Match $" in step["Action"] for step in s['trace']):
-                st.markdown('<p class="status-accepted">نتيجة التحليل: الجملة مقبولة ✅</p>', unsafe_allow_html=True)
+            # --- نتيجة قبول/رفض الجملة ---
+            accepted = (s['idx'] == len(tokens)) and not any(step['Action'] == "Error" for step in s['trace'])
+            if accepted:
+                st.markdown('<div class="status-accepted">نتيجة التحليل: الجملة مقبولة ✅</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<p class="status-rejected">نتيجة التحليل: الجملة مرفوضة ❌</p>', unsafe_allow_html=True)
+                st.markdown('<div class="status-rejected">نتيجة التحليل: الجملة مرفوضة ❌</div>', unsafe_allow_html=True)
 
     st.header("6️⃣ تحميل التقارير")
     col_dl1, col_dl2 = st.columns(2)
@@ -239,17 +237,18 @@ if grammar_raw:
             try:
                 pdf = PDFReport()
                 pdf.add_page()
-                pdf.add_section("Grammar")
+                pdf.add_section("Original Grammar")
                 for nt, prods in grammar_raw.items():
                     line = f"{nt} -> {' | '.join([' '.join(p) for p in prods])}"
                     pdf.cell(0, 7, pdf.safe_text(line), ln=True)
                 pdf.add_data_table(ff_df, "First and Follow Sets")
-                pdf.add_data_table(m_table, "Parsing Table")
+                pdf.add_data_table(m_table, "Parsing M-Table")
                 if 'sim' in st.session_state and st.session_state.sim['trace']:
                     pdf.add_data_table(pd.DataFrame(st.session_state.sim['trace']), "Simulation Trace")
                     pdf.add_page()
+                    pdf.add_section("Final Parse Tree")
                     img_bytes = st.session_state.sim['dot'].pipe(format='png')
                     pdf.image(io.BytesIO(img_bytes), w=pdf.epw)
-                st.download_button("📥 تحميل PDF", bytes(pdf.output()), "Full_Report.pdf", "application/pdf")
+                st.download_button("📥 تحميل PDF", bytes(pdf.output()), "Full_Analysis.pdf", "application/pdf")
             except Exception as e:
-                st.error(f"خطأ في بناء PDF: {e}")
+                st.error(f"حدث خطأ أثناء بناء PDF: {e}")

@@ -14,7 +14,7 @@ st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
-    .ltr-table { direction: LTR !important; text-align: left !important; }
+    .ltr-table { direction: LTR !important; text-align: left !important; font-family: sans-serif; }
     .status-accepted { background-color: #2e7d32; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; margin: 10px 0; }
     .status-rejected { background-color: #c62828; color: white; padding: 15px; border-radius: 8px; text-align: center; font-size: 20px; margin: 10px 0; }
     </style>
@@ -67,15 +67,16 @@ def get_first_follow(grammar):
                         if 'ε' in fb: follow[B].update(follow[nt])
     return first, follow
 
-# 3. محرك تقارير PDF (إصلاح مشكلة ظهور الأسطر واللغة) --- #
+# 3. محرك تقارير PDF (إصلاح شامل للخطوط والظهور) --- #
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
+        # إعداد الخط الأساسي لدعم الرموز ε واللغة العربية
         if os.path.exists("DejaVuSans.ttf"):
             self.add_font("DejaVu", "", "DejaVuSans.ttf")
             self.f_name = "DejaVu"
         else:
-            self.f_name = "Arial"
+            self.f_name = "Arial" # احتياطي في حال غياب الملف
 
     def header(self):
         self.set_font(self.f_name, "", 14)
@@ -85,43 +86,41 @@ class AcademicPDF(FPDF):
     def add_section(self, title, df=None, grammar=None):
         self.set_font(self.f_name, "", 12)
         self.set_fill_color(230, 230, 230)
-        self.cell(0, 10, f" {title}", ln=True, fill=True)
+        _ = self.cell(0, 10, f" {title}", ln=True, fill=True)
         self.ln(2)
         
         if grammar:
-            self.set_font("Courier", "", 10)
+            self.set_font(self.f_name, "", 10) # استخدام DejaVu لدعم ε
             for k, v in grammar.items():
-                self.cell(0, 7, f"{k} -> {' | '.join([' '.join(p) for p in v])}", ln=True)
+                line = f"{k} -> {' | '.join([' '.join(p) for p in v])}"
+                _ = self.cell(0, 8, line, ln=True)
         elif df is not None:
-            self.set_font("Arial", "", 9)
+            self.set_font(self.f_name, "", 9)
             cols = list(df.columns)
-            if "Stack" in cols: # تخصيص عرض أعمدة جدول المحاكاة
-                cw = [90, 30, 70]
-            else:
-                cw = [self.epw / (len(cols)+1)] * (len(cols)+1)
-
-            # طباعة العناوين
-            if not "Stack" in cols: self.cell(cw[0], 8, "NT", 1, 0, 'C')
-            for i, c in enumerate(cols):
-                idx = i+1 if not "Stack" in cols else i
-                self.cell(cw[idx] if isinstance(cw, list) else cw, 8, str(c), 1, 0, 'C')
+            # ضبط عرض الأعمدة
+            cw = self.epw / (len(cols) + (0 if "Stack" in cols else 1))
+            
+            # عناوين الجدول
+            if "Stack" not in cols: 
+                _ = self.cell(cw, 8, "NT", 1, 0, 'C')
+            for c in cols:
+                _ = self.cell(cw, 8, str(c), 1, 0, 'C')
             self.ln()
 
-            # طباعة البيانات
+            # بيانات الجدول
             for idx, r in df.iterrows():
-                if self.get_y() > 260: self.add_page()
-                if not "Stack" in cols: self.cell(cw[0], 7, str(idx), 1)
-                for i, v in enumerate(r):
-                    c_idx = i+1 if not "Stack" in cols else i
-                    # استخدام متغير مهمل (_) لمنع طباعة مخرجات الدالة في واجهة سريم ليت
-                    _ = self.cell(cw[c_idx] if isinstance(cw, list) else cw, 7, str(v), 1)
+                if self.get_y() > 250: self.add_page()
+                if "Stack" not in cols: 
+                    _ = self.cell(cw, 7, str(idx), 1, 0, 'C')
+                for v in r:
+                    _ = self.cell(cw, 7, str(v), 1, 0, 'L')
                 self.ln()
         self.ln(5)
 
-# 4. واجهة المستخدم والمحاكاة --- #
+# 4. واجهة المستخدم --- #
 with st.sidebar:
     st.header("1️⃣ إدخال القواعد")
-    raw_in = st.text_area("أدخل القواعد (القاعدة الأولى هي البداية):", "E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id", height=150)
+    raw_in = st.text_area("أدخل القواعد:", "E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id", height=150)
     speed = st.slider("سرعة المحاكاة:", 0.1, 2.0, 0.5)
 
 grammar_raw = OrderedDict()
@@ -151,32 +150,32 @@ if grammar_raw:
                 for b in fo_sets[nt]: m_table.at[nt, b] = f"{nt} -> {' '.join(p)}"
 
     st.header("2️⃣ & 3️⃣ جداول التحليل")
+    st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
     st.dataframe(m_table, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.header("4️⃣ & 5️⃣ محاكاة الجملة")
-    u_input = st.text_input("أدخل الجملة المراد فحصها (افصل بمسافة):", "id + id * id $")
+    u_input = st.text_input("أدخل الجملة (افصل بمسافة):", "id + id * id $")
 
     if 'sim' not in st.session_state:
-        st.session_state.sim = {'trace': [], 'dot': Digraph(), 'done': False}
+        st.session_state.sim = {'trace': [], 'dot': None, 'done': False}
 
     c1, c2, _ = st.columns([1, 1, 2])
     if c1.button("🔄 إعادة ضبط"):
-        st.session_state.sim = {'trace': [], 'dot': Digraph(), 'done': False}
+        st.session_state.sim = {'trace': [], 'dot': None, 'done': False}
         st.rerun()
 
-    if c2.button("▶ تشغيل المحاكاة"):
+    if c2.button("▶ تشغيل"):
         tokens = u_input.split()
-        stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
-        idx = 0
-        dot = Digraph(format='png')
-        dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor=LEVEL_COLORS[0])
-        node_id = 0
-        trace = []
+        start_node = list(fixed_g.keys())[0]
+        stack = [('$', '0'), (start_node, '0')]
+        idx, node_id, trace = 0, 0, []
+        dot = Digraph()
+        dot.node('0', start_node, style='filled', fillcolor=LEVEL_COLORS[0])
         
         while stack:
             top, pid = stack.pop()
             look = tokens[idx] if idx < len(tokens) else '$'
-            # استخدام أعمدة باللغة الإنجليزية
             step = {"Stack": " ".join([s for s, i in stack] + [top]), "Input": look, "Action": ""}
             
             if top == look:
@@ -185,9 +184,9 @@ if grammar_raw:
                 if top == '$': break
             elif top in fixed_g:
                 rule = m_table.at[top, look]
-                if rule != "":
+                if rule:
                     rhs = rule.split('->')[1].strip().split()
-                    step["Action"] = f"Apply {rule}" # نصوص إنجليزية
+                    step["Action"] = f"Apply {rule}"
                     new_nodes = []
                     for sym in rhs:
                         node_id += 1
@@ -218,15 +217,16 @@ if grammar_raw:
     if st.button("📄 توليد PDF الأكاديمي"):
         pdf = AcademicPDF()
         pdf.add_page()
-        pdf.add_section("1. Grammar Rules", grammar=fixed_g)
+        pdf.add_section("1. Corrected Grammar Rules", grammar=fixed_g)
         pdf.add_section("2. M-Parsing Table", df=m_table)
+        
         if st.session_state.sim['trace']:
             pdf.add_section("3. Simulation Trace", df=pd.DataFrame(st.session_state.sim['trace']))
-            # إضافة صورة الشجرة
-            img_data = st.session_state.sim['dot'].pipe(format='png')
-            pdf.add_page()
-            pdf.cell(0, 10, "4. Parse Tree Visual", ln=True)
-            pdf.image(io.BytesIO(img_data), w=pdf.epw)
+            if st.session_state.sim['dot']:
+                img_data = st.session_state.sim['dot'].pipe(format='png')
+                pdf.add_page()
+                pdf.set_font(pdf.f_name, "", 14)
+                _ = pdf.cell(0, 10, "4. Final Parse Tree Visual", ln=True)
+                pdf.image(io.BytesIO(img_data), w=pdf.epw)
         
-        # استخدام bytes() لضمان عمل زر التحميل بنجاح
-        st.download_button("📥 تحميل ملف PDF الآن", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")
+        st.download_button("📥 تحميل ملف PDF", bytes(pdf.output()), "LL1_Academic_Report.pdf", "application/pdf")

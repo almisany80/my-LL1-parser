@@ -7,7 +7,7 @@ import os
 from fpdf import FPDF
 
 # 1. التنسيق الأكاديمي (RTL)
-st.set_page_config(page_title="LL(1) Academic Studio V5.5", layout="wide")
+st.set_page_config(page_title="LL(1) Academic Studio Final", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
@@ -100,7 +100,7 @@ def get_first_follow_stable(grammar):
         if not changed: break
     return first, follow
 
-# 4. إدارة الحالة
+# 4. إدارة الحالة في Streamlit
 if 'sim' not in st.session_state:
     st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False}
 if 'last_cfg' not in st.session_state: st.session_state.last_cfg = ""
@@ -108,14 +108,14 @@ if 'last_cfg' not in st.session_state: st.session_state.last_cfg = ""
 with st.sidebar:
     st.header("⚙️ الإعدادات")
     def_g = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
-    raw_in = st.text_area("القواعد:", def_g, height=200)
+    raw_in = st.text_area("القواعد (Grammar):", def_g, height=200)
     u_input = st.text_input("الجملة المختبرة:", "id + id * id $")
     
     if f"{raw_in}_{u_input}" != st.session_state.last_cfg:
         st.session_state.sim = {'trace': [], 'dot': None, 'status': None, 'stack': [], 'idx': 0, 'node_id': 0, 'finished': False}
         st.session_state.last_cfg = f"{raw_in}_{u_input}"
 
-# 5. معالجة البيانات
+# 5. معالجة البيانات وبناء الجداول
 grammar_raw = OrderedDict()
 for line in raw_in.strip().split('\n'):
     if '->' in line:
@@ -128,7 +128,11 @@ if grammar_raw:
     
     st.header("1️⃣ جداول التحليل")
     c1, ff_col = st.columns([1, 1])
+    with c1:
+        st.markdown("**القواعد المعالجة (LL1 Compatible):**")
+        for k, v in fixed_g.items(): st.markdown(f'<div class="grammar-box ltr-table">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
     with ff_col:
+        st.markdown("**First & Follow Sets:**")
         ff_df = pd.DataFrame({"First": [str(f_sets[n]) for n in fixed_g], "Follow": [str(fo_sets[n]) for n in fixed_g]}, index=fixed_g.keys())
         st.table(ff_df)
 
@@ -147,16 +151,18 @@ if grammar_raw:
                 for b in fo_sets[nt]: m_data[nt][b].append(f"{nt}->{' '.join(p)}")
 
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
+    is_ll1 = True
     for nt in fixed_g:
         for t in terms:
             rules = list(set(m_data[nt][t]))
+            if len(rules) > 1: is_ll1 = False
             m_table.at[nt, t] = rules[0] if len(rules) == 1 else (" | ".join(rules) if len(rules) > 1 else "")
 
     st.subheader("M-Table (Parsing Table)")
-    st.dataframe(m_table, use_container_width=True)
+    st.dataframe(m_table.style.applymap(lambda v: 'background-color: #ffcdd2' if '|' in v else ''), use_container_width=True)
 
-    # 6. المحاكاة (إصلاح الرموز الخاصة)
-    st.header("2️⃣ تتبع الجملة")
+    # 6. المحاكاة والتتبع 
+    st.header("2️⃣ تتبع الجملة (Tracing)")
     
     def run_step(stack, tokens, idx, node_id, dot, trace):
         if not stack: return idx, node_id, True, "Accepted"
@@ -167,7 +173,8 @@ if grammar_raw:
             step["Action"] = f"Match {look}"; idx += 1; trace.append(step)
             return idx, node_id, (top == '$'), "Accepted" if top == '$' else None
         elif top in fixed_g:
-            rules = list(set(m_data[top][look]))
+            # تم تأمين هذه الدالة باستخدام .get() لمنع الـ KeyError
+            rules = list(set(m_data[top].get(look, [])))
             if len(rules) == 1:
                 rhs = rules[0].split('->')[1].strip().split()
                 if rhs == ['ε']: rhs = []
@@ -175,21 +182,22 @@ if grammar_raw:
                 temp = []
                 for sym in rhs:
                     node_id += 1; nid = str(node_id)
-                    # إصلاح الرموز: وضع الرمز داخل علامات اقتباس مزدوجة للـ Graphviz
+                    # تغليف الرموز بعلامات تنصيص لضمان رسم الـ Graphviz
                     dot.node(nid, f'"{sym}"', style='filled', fillcolor='#C8E6C9')
                     dot.edge(pid, nid); temp.append((sym, nid))
                 if not rhs:
                     node_id += 1; nid = str(node_id)
                     dot.node(nid, '"ε"', style='filled', fillcolor='#F8BBD0'); dot.edge(pid, nid)
+                # دفع العقد للمكدس بشكل معكوس لضمان استخراجها يسار-يمين
                 for item in reversed(temp): stack.append(item)
                 return idx, node_id, False, None
             else:
-                step["Action"] = "Error"; trace.append(step); return idx, node_id, True, "Rejected"
+                step["Action"] = "Error: Invalid Token or Blank Cell"; trace.append(step); return idx, node_id, True, "Rejected"
         else:
-            step["Action"] = "Error"; trace.append(step); return idx, node_id, True, "Rejected"
+            step["Action"] = f"Error: Expected {top}"; trace.append(step); return idx, node_id, True, "Rejected"
 
     b1, b2 = st.columns([1, 4])
-    if b1.button("▶ تشغيل"):
+    if b1.button("▶ تشغيل تلقائي"):
         tokens = u_input.split(); stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
         idx, node_id, trace = 0, 0, []
         dot = Digraph(); dot.node('0', f'"{list(fixed_g.keys())[0]}"', style='filled', fillcolor='#BBDEFB')
@@ -197,24 +205,35 @@ if grammar_raw:
         while not fin: idx, node_id, fin, stat = run_step(stack, tokens, idx, node_id, dot, trace)
         st.session_state.sim.update({'trace': trace, 'dot': dot, 'finished': True, 'status': stat})
 
+    if b2.button("⏭ خطوة بخطوة"):
+        s = st.session_state.sim
+        if not s['stack'] and not s['finished']:
+            s.update({'tokens': u_input.split(), 'stack': [('$', '0'), (list(fixed_g.keys())[0], '0')], 'dot': Digraph(), 'node_id': 0, 'idx': 0, 'trace': []})
+            s['dot'].node('0', f'"{list(fixed_g.keys())[0]}"', style='filled', fillcolor='#BBDEFB')
+        if not s['finished']:
+            s['idx'], s['node_id'], s['finished'], s['status'] = run_step(s['stack'], s['tokens'], s['idx'], s['node_id'], s['dot'], s['trace'])
+
     if st.session_state.sim['trace']:
+        st.markdown('<div class="ltr-table">', unsafe_allow_html=True)
         st.table(pd.DataFrame(st.session_state.sim['trace']))
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         st.graphviz_chart(st.session_state.sim['dot'])
         if st.session_state.sim['finished']:
             st.markdown(f'<div class="status-{st.session_state.sim["status"].lower()}">{st.session_state.sim["status"]}</div>', unsafe_allow_html=True)
 
-    # 7. تحميل التقارير
-    st.header("3️⃣ تحميل التقارير")
+    # 7. تحميل التقارير (PDF & Excel)
+    st.header("3️⃣ تصدير النتائج (Reports)")
     col_p, col_e = st.columns(2)
     with col_p:
-        if st.button("📄 تحميل PDF"):
+        if st.button("📄 توليد تقرير PDF"):
             pdf = AcademicPDF(); pdf.add_page()
-            pdf.add_section("1. Corrected Grammar", grammar=fixed_g)
+            pdf.add_section("1. Processed Grammar (LL1)", grammar=fixed_g)
             pdf.add_section("2. First & Follow Sets", df=ff_df.reset_index())
-            pdf.add_section("3. M-Table", df=m_table.reset_index())
+            pdf.add_section("3. Parsing Table (M-Table)", df=m_table.reset_index())
             if st.session_state.sim['trace']:
                 pdf.add_section("4. Execution Trace", df=pd.DataFrame(st.session_state.sim['trace']))
-            st.download_button("📥 تأكيد تحميل PDF", pdf.output(), "Academic_Report.pdf", "application/pdf")
+            st.download_button("📥 تأكيد تحميل الـ PDF", pdf.output(), "LL1_Parser_Report.pdf", "application/pdf")
     
     with col_e:
         output = io.BytesIO()
@@ -223,4 +242,7 @@ if grammar_raw:
             ff_df.to_excel(writer, sheet_name='First-Follow')
             if st.session_state.sim['trace']:
                 pd.DataFrame(st.session_state.sim['trace']).to_excel(writer, sheet_name='Trace', index=False)
-        st.download_button("📥 تحميل Excel", output.getvalue(), "Compiler_Data.xlsx", "application/vnd.ms-excel")
+        st.download_button("📥 تحميل البيانات (Excel)", output.getvalue(), "LL1_Compiler_Data.xlsx", "application/vnd.ms-excel")
+
+else:
+    st.info("يرجى إدخال القواعد في الجانب الأيمن لبدء التحليل.")

@@ -243,11 +243,13 @@ if grammar_raw:
                 pdf.add_page()
                 img = st.session_state.sim['dot'].pipe(format='png')
                 pdf.image(io.BytesIO(img), w=pdf.epw)
-            st.download_button("📥 تحميل PDF", pdf.output(), "LL1_Complete_Report.pdf")
+            st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Complete_Report.pdf")
+
 
     with col_xls:
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine='openpyxl') as writer:
             ff_df.to_excel(writer, sheet_name='Sets'); m_table.to_excel(writer, sheet_name='M_Table')
         st.download_button("📥 تحميل Excel", out.getvalue(), "LL1_Tables.xlsx")
+
 

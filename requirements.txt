@@ -1,5 +1,6 @@
 streamlit
 pandas
 graphviz
-fpdf2
+fpdf2>=2.7.4
 openpyxl
+pillow

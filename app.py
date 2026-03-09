@@ -156,6 +156,7 @@ if grammar_raw:
             st.markdown(f'<div class="grammar-box ltr-table" style="border-right-color:#2e7d32">{k} → {" | ".join([" ".join(p) for p in v])}</div>', unsafe_allow_html=True)
 
     # حساب First & Follow
+    st.markdown('<h2 class="section-title">2️⃣ مجموعات First & Follow</h2>', unsafe_allow_html=True)
     f_sets, fo_sets = get_first_follow(fixed_g)
     ff_df = pd.DataFrame({
         "First": [", ".join(sorted(list(s))) for s in f_sets.values()],
@@ -163,6 +164,7 @@ if grammar_raw:
     }, index=f_sets.keys())
 
     # بناء M-Table
+    st.markdown('<h2 class="section-title">3️⃣ مصفوفة الإعراب (M-Table)</h2>', unsafe_allow_html=True)
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
     for nt, prods in fixed_g.items():
@@ -245,3 +247,4 @@ if grammar_raw:
             m_table.to_excel(w, sheet_name='M_Table')
             if st.session_state.sim['trace']: pd.DataFrame(st.session_state.sim['trace']).to_excel(w, sheet_name='Trace', index=False)
         st.download_button("📥 تحميل Excel", out.getvalue(), "Data.xlsx")
+

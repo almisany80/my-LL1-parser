@@ -6,8 +6,8 @@ from graphviz import Digraph
 import io, os, tempfile
 from fpdf import FPDF
 
-# 1. إعدادات الهوية البصرية (RTL)
-st.set_page_config(page_title="LL(1) Academic Studio V6.7", layout="wide")
+# 1. إعدادات الواجهة
+st.set_page_config(page_title="LL(1) Academic Studio V6.8", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
@@ -20,36 +20,54 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. تهيئة الذاكرة لضمان عدم حدوث Blank Screen
+# 2. تهيئة الذاكرة التفاعلية (مهم جداً لحل مشكلة القائمة المنسدلة)
 if 'done' not in st.session_state:
     st.session_state.update({'done': False, 'status': "", 'trace': [], 'dot': None, 'n_id': 0, 'stack': []})
 
-# 3. محرك الأمثلة الجاهزة (Presets)
+if "g_input" not in st.session_state:
+    st.session_state.g_input = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id"
+if "s_input" not in st.session_state:
+    st.session_state.s_input = "id + id * id $"
+
+# 3. الأمثلة الجاهزة
 PRESETS = {
-    "حسابية (Arithmetic)": {
+    "مثال 1: حسابية": {
         "grammar": "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id",
         "sentence": "id + id * id $"
     },
-    "منطقية (Boolean)": {
+    "مثال 2: منطقية": {
         "grammar": "B -> T B'\nB' -> or T B' | ε\nT -> F T'\nT' -> and F T' | ε\nF -> not F | true | false",
         "sentence": "true or false and true $"
+    },
+    "مثال 3: دكتور حسنين (الصورة)": {
+        "grammar": "S -> a A B C\nA -> a | b b\nB -> a | ε\nC -> b | ε",
+        "sentence": "a b b a b $"
     }
 }
 
-# 4. وظائف المعالجة الذكية
+# دالة تحديث الحقول عند اختيار مثال
+def update_inputs():
+    sel = st.session_state.preset_sel
+    if sel != "-- اختر --":
+        st.session_state.g_input = PRESETS[sel]["grammar"]
+        st.session_state.s_input = PRESETS[sel]["sentence"]
+        st.session_state.done = False
+        st.session_state.trace = []
+        st.session_state.dot = None
+
+# 4. المعالجة الذكية
 def smart_format(text):
     text = text.replace("→", "->").replace("ε", "epsilon")
     text = re.sub(r'([+\-*\/()|])', r' \1 ', text)
     return re.sub(r' +', ' ', text).strip()
 
-# إصلاح فئة PDF بناءً على الخطأ في صورتك (image_dca4b1)
+# فئة PDF
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
-        self.font_to_use = "Arial" # الافتراضي
+        self.font_to_use = "Arial"
         if os.path.exists("DejaVuSans.ttf"):
             try:
-                # إزالة الوسيط 'unicode' لأنه يسبب الخطأ في النسخ الحديثة
                 self.add_font("DejaVu", "", "DejaVuSans.ttf")
                 self.font_to_use = "DejaVu"
             except: pass
@@ -78,40 +96,35 @@ class AcademicPDF(FPDF):
                 self.ln()
         self.ln(5)
 
-# 5. لوحة التحكم الجانبية
+# 5. الواجهة الجانبية
 with st.sidebar:
     st.header("⚙️ لوحة التحكم")
-    selected_preset = st.selectbox("📂 أمثلة جاهزة للطلاب:", ["-- اختر --"] + list(PRESETS.keys()))
+    st.selectbox("📂 أمثلة جاهزة للطلاب:", ["-- اختر --"] + list(PRESETS.keys()), key="preset_sel", on_change=update_inputs)
     
-    if selected_preset != "-- اختر --":
-        g_init, s_init = PRESETS[selected_preset]["grammar"], PRESETS[selected_preset]["sentence"]
-    else:
-        g_init, s_init = "E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id", "id + id $"
-
-    raw_in = st.text_area("أدخل القواعد البرمجية:", value=g_init, height=200)
-    sentence = st.text_input("الجملة المختبرة:", value=s_init)
+    raw_in = st.text_area("أدخل القواعد البرمجية:", key="g_input", height=200)
+    sentence = st.text_input("الجملة المختبرة:", key="s_input")
     
-    if st.button("🔄 تصفير النظام بالكامل"):
-        st.session_state.clear()
+    if st.button("🔄 تصفير النظام"):
+        for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
 
-# 6. الهيكل الرئيسي للصفحة (يظهر دائماً لمنع الصفحة البيضاء)
 st.markdown('<div class="welcome-card"><h2>🎓 مختبر المحلل القواعدي (LL1)</h2><p>جامعة ميسان - كلية التربية - قسم علوم الحاسوب</p></div>', unsafe_allow_html=True)
 
-# معالجة القواعد بأمان
+# 6. حل مشكلة المعالجة (التي ظهرت في صورتك)
 grammar = OrderedDict()
 if raw_in.strip():
     for line in raw_in.strip().split('\n'):
-        if '->' in line:
-            parts = smart_format(line).split('->')
+        # الحل: نقوم بالتنظيف أولاً، لكي يتحول السهم → إلى -> قبل فحصه
+        clean_line = smart_format(line) 
+        if '->' in clean_line:
+            parts = clean_line.split('->')
             if len(parts) == 2:
                 grammar[parts[0].strip()] = [p.strip().split() for p in parts[1].split('|')]
 
 # منطق العمل الأكاديمي
 if not grammar:
-    st.info("💡 بانتظار إدخال القواعد في الشريط الجانبي لبدء التحليل...")
+    st.info("💡 بانتظار إدخال القواعد في الشريط الجانبي لبدء التحليل... (تأكد من استخدام سهم -> أو →)")
 else:
-    # (هنا يتم وضع دوال fix_recursion و get_ff كما في V6.6)
     def fix_recursion(g):
         new_g = OrderedDict()
         for nt, prods in g.items():
@@ -135,7 +148,7 @@ else:
                 if 'ε' not in sf: break
             else: res.add('ε')
             return res
-        for _ in range(10): # تكرار كافٍ للاستقرار
+        for _ in range(10):
             for nt, prods in g.items():
                 for p in prods: first[nt].update(get_f(p))
         
@@ -156,7 +169,6 @@ else:
     fixed_g = fix_recursion(grammar)
     f_s, fo_s = get_ff(fixed_g)
 
-    # بناء الجدول وتكملة العرض (Table & Simulation)
     terms = sorted(list({s for ps in fixed_g.values() for p in ps for s in p if s not in fixed_g and s != 'ε'})) + ['$']
     m_table = pd.DataFrame("", index=fixed_g.keys(), columns=terms)
     for nt, prods in fixed_g.items():
@@ -176,7 +188,7 @@ else:
     with col1: st.table(pd.DataFrame({"First": [str(f_s[n]) for n in fixed_g], "Follow": [str(fo_s[n]) for n in fixed_g]}, index=fixed_g.keys()))
     with col2: st.dataframe(m_table, use_container_width=True)
 
-    # 7. المحاكاة (Simulation)
+    # 7. المحاكاة
     if st.session_state.dot is None:
         st.session_state.dot = Digraph(); st.session_state.dot.node('0', list(fixed_g.keys())[0], style='filled', fillcolor='lightblue')
         st.session_state.stack = [('$', '0'), (list(fixed_g.keys())[0], '0')]
@@ -188,7 +200,10 @@ else:
         look = tokens[m_count] if m_count < len(tokens) else '$'
         if not s.stack or s.done: return
         top, pid = s.stack.pop()
-        row = {"Stack": " ".join([v for v, i in s.stack] + [top]), "Input": " ".join(tokens[m_count:]), "Action": ""}
+        
+        # الرمز \u200B يمنع تحول الرموز إلى نقاط (Bullets)
+        row = {"Stack": " ".join([v for v, i in s.stack] + [top]), "Input": "\u200B " + " ".join(tokens[m_count:]), "Action": ""}
+        
         if top == look:
             row["Action"] = f"Match {look}"
             if top == '$': s.done, s.status = True, "Accepted"
@@ -220,3 +235,22 @@ else:
         st.graphviz_chart(st.session_state.dot)
         if st.session_state.done:
             st.markdown(f'<div class="status-box {"accepted" if st.session_state.status == "Accepted" else "rejected"}">{st.session_state.status}</div>', unsafe_allow_html=True)
+
+    # 8. التصدير
+    st.divider()
+    if st.button("📄 توليد وتحميل تقرير PDF"):
+        pdf = AcademicPDF(); pdf.add_page()
+        pdf.write_section("1. Input Grammar", grammar=fixed_g)
+        pdf.write_section("2. First & Follow", df=pd.DataFrame({"First": [str(f_s[n]) for n in fixed_g], "Follow": [str(fo_s[n]) for n in fixed_g]}, index=fixed_g.keys()).reset_index())
+        pdf.write_section("3. M-Table", df=m_table.reset_index())
+        if st.session_state.trace:
+            pdf.write_section("4. Execution Trace", df=pd.DataFrame(st.session_state.trace))
+            img_data = st.session_state.dot.pipe(format='png')
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                tmp.write(img_data); tmp_path = tmp.name
+            pdf.add_page()
+            pdf.image(tmp_path, x=10, y=20, w=180)
+            os.unlink(tmp_path)
+        
+        # حماية التصدير: bytes() تحل مشكلة bytearray التي ظهرت في صورك السابقة
+        st.download_button("📥 اضغط هنا للتحميل", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")

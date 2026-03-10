@@ -6,12 +6,21 @@ from graphviz import Digraph
 import io, os, tempfile
 from fpdf import FPDF
 
-# 1. إعدادات الواجهة
-st.set_page_config(page_title="LL(1) Academic Studio V6.8", layout="wide")
+# 1. إعدادات الواجهة (إصلاح اتجاه صناديق الأكواد لتكون LTR)
+st.set_page_config(page_title="LL(1) Academic Studio V6.9", layout="wide")
 st.markdown("""
     <style>
     .main { direction: RTL; text-align: right; }
     [data-testid="stSidebar"] { direction: RTL; text-align: right; }
+    
+    /* جعل صناديق النصوص من اليسار لليمين لسهولة كتابة القواعد */
+    textarea, input[type="text"] { 
+        direction: LTR !important; 
+        text-align: left !important; 
+        font-family: 'monospace' !important;
+        font-size: 16px !important;
+    }
+    
     .stTable td { white-space: pre !important; font-family: 'monospace'; }
     .status-box { padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; margin: 10px 0; }
     .accepted { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
@@ -20,7 +29,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. تهيئة الذاكرة التفاعلية (مهم جداً لحل مشكلة القائمة المنسدلة)
+# 2. تهيئة الذاكرة
 if 'done' not in st.session_state:
     st.session_state.update({'done': False, 'status': "", 'trace': [], 'dot': None, 'n_id': 0, 'stack': []})
 
@@ -39,13 +48,12 @@ PRESETS = {
         "grammar": "B -> T B'\nB' -> or T B' | ε\nT -> F T'\nT' -> and F T' | ε\nF -> not F | true | false",
         "sentence": "true or false and true $"
     },
-    "مثال 3: دكتور حسنين (الصورة)": {
+    "مثال 3: دكتور حسنين": {
         "grammar": "S -> a A B C\nA -> a | b b\nB -> a | ε\nC -> b | ε",
         "sentence": "a b b a b $"
     }
 }
 
-# دالة تحديث الحقول عند اختيار مثال
 def update_inputs():
     sel = st.session_state.preset_sel
     if sel != "-- اختر --":
@@ -55,13 +63,23 @@ def update_inputs():
         st.session_state.trace = []
         st.session_state.dot = None
 
-# 4. المعالجة الذكية
+# 4. المعالجة الذكية فائقة المرونة (تم إصلاح الخلل هنا)
 def smart_format(text):
-    text = text.replace("→", "->").replace("ε", "epsilon")
+    # 1. توحيد كل أشكال الأسهم المحتملة إلى شكل واحد قياسي
+    text = text.replace("→", "->").replace("=>", "->").replace("= >", "->").replace("- >", "->")
+    text = text.replace("ε", "epsilon")
+    
+    # 2. حماية السهم بكلمة مؤقتة حتى لا يتم تدميره في الخطوة التالية
+    text = text.replace("->", " ARROW ")
+    
+    # 3. فصل الرموز الرياضية بأمان
     text = re.sub(r'([+\-*\/()|])', r' \1 ', text)
+    
+    # 4. إعادة السهم إلى طبيعته
+    text = text.replace(" ARROW ", " -> ")
+    
     return re.sub(r' +', ' ', text).strip()
 
-# فئة PDF
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
@@ -101,7 +119,7 @@ with st.sidebar:
     st.header("⚙️ لوحة التحكم")
     st.selectbox("📂 أمثلة جاهزة للطلاب:", ["-- اختر --"] + list(PRESETS.keys()), key="preset_sel", on_change=update_inputs)
     
-    raw_in = st.text_area("أدخل القواعد البرمجية:", key="g_input", height=200)
+    raw_in = st.text_area("أدخل القواعد البرمجية (مرونة عالية في كتابة الأسهم):", key="g_input", height=200)
     sentence = st.text_input("الجملة المختبرة:", key="s_input")
     
     if st.button("🔄 تصفير النظام"):
@@ -110,20 +128,19 @@ with st.sidebar:
 
 st.markdown('<div class="welcome-card"><h2>🎓 مختبر المحلل القواعدي (LL1)</h2><p>جامعة ميسان - كلية التربية - قسم علوم الحاسوب</p></div>', unsafe_allow_html=True)
 
-# 6. حل مشكلة المعالجة (التي ظهرت في صورتك)
+# 6. استخراج القواعد
 grammar = OrderedDict()
 if raw_in.strip():
     for line in raw_in.strip().split('\n'):
-        # الحل: نقوم بالتنظيف أولاً، لكي يتحول السهم → إلى -> قبل فحصه
         clean_line = smart_format(line) 
         if '->' in clean_line:
             parts = clean_line.split('->')
             if len(parts) == 2:
                 grammar[parts[0].strip()] = [p.strip().split() for p in parts[1].split('|')]
 
-# منطق العمل الأكاديمي
+# منطق العمل
 if not grammar:
-    st.info("💡 بانتظار إدخال القواعد في الشريط الجانبي لبدء التحليل... (تأكد من استخدام سهم -> أو →)")
+    st.info("💡 بانتظار إدخال القواعد في الشريط الجانبي لبدء التحليل... (يمكنك استخدام -> أو → أو =>)")
 else:
     def fix_recursion(g):
         new_g = OrderedDict()
@@ -201,7 +218,6 @@ else:
         if not s.stack or s.done: return
         top, pid = s.stack.pop()
         
-        # الرمز \u200B يمنع تحول الرموز إلى نقاط (Bullets)
         row = {"Stack": " ".join([v for v, i in s.stack] + [top]), "Input": "\u200B " + " ".join(tokens[m_count:]), "Action": ""}
         
         if top == look:
@@ -252,5 +268,4 @@ else:
             pdf.image(tmp_path, x=10, y=20, w=180)
             os.unlink(tmp_path)
         
-        # حماية التصدير: bytes() تحل مشكلة bytearray التي ظهرت في صورك السابقة
         st.download_button("📥 اضغط هنا للتحميل", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")

@@ -1,11 +1,5 @@
 streamlit
 pandas
 graphviz
-fpdf2>=2.7.4
-openpyxl
-pillow
+fpdf2
 xlsxwriter
-
-
-
-

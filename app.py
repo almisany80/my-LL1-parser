@@ -2,39 +2,44 @@ import streamlit as st
 import pandas as pd
 from collections import OrderedDict
 from graphviz import Digraph
-import io, os
+import io, os, tempfile
 from fpdf import FPDF
 
-# 1. إعدادات الصفحة والهوية البصرية
-st.set_page_config(page_title="LL(1) Compiler Studio - University of Misan", layout="wide")
+# 1. إعدادات الهوية البصرية والتنسيق الأكاديمي (RTL)
+st.set_page_config(page_title="LL(1) Compiler Studio - Misan University", layout="wide")
 
-# CSS لتحسين الخطوط وتنسيق الهيدر والجداول
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
     html, body, [class*="st-"] { font-family: 'Tajawal', sans-serif; direction: RTL; text-align: right; }
-    .header-text { line-height: 1.2; color: #1E3A8A; }
-    .main-title { font-size: 24px; font-weight: bold; margin-bottom: 0; }
-    .sub-title { font-size: 18px; color: #4B5563; }
+    .header-container { background-color: #ffffff; padding: 20px; border-radius: 10px; border-bottom: 4px solid #1E3A8A; margin-bottom: 25px; }
+    .header-text { line-height: 1.3; color: #1E3A8A; }
+    .main-title { font-size: 26px; font-weight: bold; }
+    .sub-title { font-size: 19px; color: #4B5563; }
     .stTable td { white-space: pre !important; font-family: 'monospace' !important; text-align: center; }
-    .status-box { padding: 15px; border-radius: 10px; text-align: center; font-weight: bold; margin: 10px 0; border: 2px solid; }
-    .accepted { background-color: #D1FAE5; color: #065F46; border-color: #34D399; }
-    .rejected { background-color: #FEE2E2; color: #991B1B; border-color: #F87171; }
     .footer { position: fixed; left: 0; bottom: 0; width: 100%; background-color: #f8fafc; color: #1e3a8a;
-              text-align: center; padding: 8px; font-weight: bold; border-top: 3px solid #1e3a8a; z-index: 100; }
+              text-align: center; padding: 10px; font-weight: bold; border-top: 3px solid #1e3a8a; z-index: 1000; }
+    .status-msg { padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 18px; margin: 15px 0; }
+    .accepted { background-color: #d1fae5; color: #065f46; border: 1px solid #34d399; }
+    .rejected { background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
     </style>
     <div class="footer">أ.م. حسنين رحيم كريم - مختبر المترجمات الذكي 2026 ©</div>
     """, unsafe_allow_html=True)
 
-# 2. الهيدر (الشعار والنصوص)
-h_col1, h_col2 = st.columns([1, 3])
-with h_col1:
-    # عرض الشعار في أقصى اليسار
-    st.image("شعار الكلية الجديد.jpg", width=120)
-with h_col2:
-    # النصوص في أقصى اليمين بتنسيق أكاديمي
+# 2. الهيدر الأكاديمي (الشعار في اليسار والنصوص في اليمين)
+header_col_left, header_col_right = st.columns([1, 4])
+
+with header_col_left:
+    # حل مشكلة MediaFileStorageError: التأكد من وجود الملف
+    logo_file = "logo.jpg"
+    if os.path.exists(logo_file):
+        st.image(logo_file, width=130)
+    else:
+        st.warning("⚠️ شعار logo.jpg غير موجود")
+
+with header_col_right:
     st.markdown("""
-        <div style="text-align: right;" class="header-text">
+        <div class="header-text">
             <div class="main-title">جامعة ميسان</div>
             <div class="sub-title">كلية التربية</div>
             <div class="sub-title">قسم علوم الحاسبات</div>
@@ -43,8 +48,8 @@ with h_col2:
 
 st.divider()
 
-# 3. محرك المعالجة المتقدم (Recursion & Factoring)
-def parse_grammar(text):
+# 3. محرك معالجة القواعد (Deep Factoring & Recursion)
+def parse_rules(text):
     g = OrderedDict()
     for line in text.strip().split('\n'):
         if '->' in line:
@@ -52,7 +57,7 @@ def parse_grammar(text):
             g[lhs.strip()] = [p.strip().split() for p in rhs.split('|')]
     return g
 
-def fix_left_recursion(g):
+def fix_recursion(g):
     new_g = OrderedDict()
     for nt, prods in g.items():
         rec = [p[1:] for p in prods if p and p[0] == nt]
@@ -64,41 +69,38 @@ def fix_left_recursion(g):
         else: new_g[nt] = prods
     return new_g
 
-def fix_left_factoring(g):
+def fix_factoring(g):
     res_g = OrderedDict()
     for nt, prods in g.items():
         curr = prods.copy()
         while True:
             prefixes = {}
             for p in curr:
-                if not p: continue
-                first_sym = p[0]
-                prefixes[first_sym] = prefixes.get(first_sym, 0) + 1
-            
-            common = [s for s, count in prefixes.items() if count > 1 and s != 'ε']
+                if p and p != ['ε']:
+                    s = p[0]
+                    prefixes[s] = prefixes.get(s, 0) + 1
+            common = [s for s, c in prefixes.items() if c > 1]
             if not common: break
             
-            best_s = common[0]
-            new_nt = f"{nt}f" # حرف f للدلالة على Factoring
+            target = common[0]
+            new_nt = f"{nt}f"
             while new_nt in g or new_nt in res_g: new_nt += "f"
             
+            rem_prods = []
             new_curr = []
-            factored_prods = []
             for p in curr:
-                if p and p[0] == best_s:
-                    rem = p[1:] if p[1:] else ['ε']
-                    factored_prods.append(rem)
+                if p and p[0] == target:
+                    rem_prods.append(p[1:] if p[1:] else ['ε'])
                 else: new_curr.append(p)
-            
-            new_curr.append([best_s, new_nt])
-            res_g[new_nt] = factored_prods
+            new_curr.append([target, new_nt])
+            res_g[new_nt] = rem_prods
             curr = new_curr
         res_g[nt] = curr
     return res_g
 
-def calculate_sets(g):
+def get_sets(g):
     first = {nt: set() for nt in g}
-    def get_f(seq):
+    def find_f(seq):
         res = set()
         if not seq or seq == ['ε']: return {'ε'}
         for s in seq:
@@ -109,7 +111,7 @@ def calculate_sets(g):
         return res
     for _ in range(10):
         for nt, prods in g.items():
-            for p in prods: first[nt].update(get_f(p))
+            for p in prods: first[nt].update(find_f(p))
     follow = {nt: set() for nt in g}
     if g: follow[list(g.keys())[0]].add('$')
     for _ in range(10):
@@ -117,120 +119,127 @@ def calculate_sets(g):
             for p in prods:
                 for i, B in enumerate(p):
                     if B in g:
-                        beta = p[i+1:]
-                        if beta:
-                            fb = get_f(beta); follow[B].update(fb - {'ε'})
-                            if 'ε' in fb: follow[B].update(follow[nt])
+                        nxt = p[i+1:]
+                        if nxt:
+                            fn = find_f(nxt); follow[B].update(fn - {'ε'})
+                            if 'ε' in fn: follow[B].update(follow[nt])
                         else: follow[B].update(follow[nt])
     return first, follow
 
-# 4. إدارة الجلسة والمدخلات
-if 'st_trace' not in st.session_state:
-    st.session_state.update({'st_trace': [], 'st_stack': [], 'st_done': False, 'st_dot': Digraph(), 'st_id': 0, 'st_status': ""})
+# 4. إدارة الجلسة (Session State)
+if 'st' not in st.session_state:
+    st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'dot': Digraph(), 'id': 0, 'status': ""}
 
 with st.sidebar:
-    st.header("⚙️ لوحة التحكم")
-    grammar_input = st.text_area("أدخل القواعد الأكاديمية:", "S -> i E t S | i E t S e S | a\nE -> b", height=150)
-    input_str = st.text_input("الجملة المراد فحصها:", "i b t a e a $")
-    if st.button("🗑 إعادة ضبط النظام"):
-        st.session_state.clear(); st.rerun()
+    st.header("⚙️ الإعدادات")
+    raw_input = st.text_area("أدخل القواعد:", "S -> i E t S | i E t S e S | a\nE -> b", height=150)
+    input_str = st.text_input("الجملة المختبرة:", "i b t a e a $")
+    if st.button("🔄 إعادة تصفير النظام"):
+        st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'dot': Digraph(), 'id': 0, 'status': ""}
+        st.rerun()
 
-# 5. التنفيذ والعرض
-orig_g = parse_grammar(grammar_input)
+# 5. بناء الجداول والعرض
+orig_g = parse_rules(raw_input)
 if orig_g:
-    # المعالجة المتسلسلة
-    processed_g = fix_left_factoring(fix_left_recursion(orig_g))
-    f_set, l_set = calculate_sets(processed_g)
+    # المعالجة
+    final_g = fix_factoring(fix_recursion(orig_g))
+    first_s, follow_s = get_sets(final_g)
     
     # جدول التنبؤ
-    terms = sorted(list({s for ps in processed_g.values() for p in ps for s in p if s not in processed_g and s != 'ε'})) + ['$']
-    m_table = pd.DataFrame("", index=processed_g.keys(), columns=terms)
-    for nt, prods in processed_g.items():
+    terms = sorted(list({s for ps in final_g.values() for p in ps for s in p if s not in final_g and s != 'ε'})) + ['$']
+    m_table = pd.DataFrame("", index=final_g.keys(), columns=terms)
+    for nt, prods in final_g.items():
         for p in prods:
             pf = set()
             for s in p:
-                sf = f_set[s] if s in processed_g else {s}; pf.update(sf - {'ε'})
+                sf = first_s[s] if s in final_g else {s}; pf.update(sf - {'ε'})
                 if 'ε' not in sf: break
             else: pf.add('ε')
             for a in pf:
                 if a != 'ε': m_table.at[nt, a] = f"{nt}->{' '.join(p)}"
             if 'ε' in pf:
-                for b in l_set[nt]: m_table.at[nt, b] = f"{nt}->{' '.join(p)}"
+                for b in follow_s[nt]: m_table.at[nt, b] = f"{nt}->{' '.join(p)}"
 
-    # عرض القواعد
-    c1, c2 = st.columns(2)
-    with c1:
+    # العرض المرئي
+    col_a, col_b = st.columns(2)
+    with col_a:
         st.subheader("📋 القواعد الأصلية")
         for k, v in orig_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
-    with c2:
-        st.subheader("🛠 القواعد بعد التصحيح")
-        for k, v in processed_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
+    with col_b:
+        st.subheader("🛠 القواعد المعالجة (LL1)")
+        for k, v in final_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
 
     st.subheader("🔍 مجموعات First & Follow")
-    ff_df = pd.DataFrame({"First": [str(sorted(list(f_set[n]))) for n in processed_g], 
-                          "Follow": [str(sorted(list(l_set[n]))) for n in processed_g]}, index=processed_g.keys())
+    ff_df = pd.DataFrame({"First": [str(sorted(list(first_s[n]))) for n in final_g], 
+                          "Follow": [str(sorted(list(follow_s[n]))) for n in final_g]}, index=final_g.keys())
     st.table(ff_df)
 
     st.subheader("📊 جدول التنبؤ (Parsing Table)")
     st.dataframe(m_table, use_container_width=True)
 
-    # 6. المحاكاة (Trace)
+    # 6. التتبع (Parsing Trace)
     st.divider()
-    st.subheader("⏳ تتبع الجملة ورسم الشجرة")
-    s = st.session_state
-    if not s.st_stack:
-        s.st_stack = [('$', '0'), (list(processed_g.keys())[0], '0')]
-        s.st_dot = Digraph(); s.st_dot.node('0', list(processed_g.keys())[0], style='filled', fillcolor='lightblue')
+    st.subheader("⏳ التتبع الحي للجملة")
+    s_state = st.session_state.st
+    
+    if not s_state['stack']:
+        s_state['stack'] = [('$', '0'), (list(final_g.keys())[0], '0')]
+        s_state['dot'] = Digraph(); s_state['dot'].node('0', list(final_g.keys())[0], style='filled', fillcolor='lightblue')
 
-    def run_step():
-        if s.st_done or not s.st_stack: return
-        tokens = input_str.split(); matches = sum(1 for x in s.st_trace if "Match" in x['Action'])
-        look = tokens[matches] if matches < len(tokens) else '$'
-        top, pid = s.st_stack.pop()
-        rec = {"Stack": " ".join([v for v, i in s.st_stack] + [top]), "Input": " ".join(tokens[matches:]), "Action": ""}
+    def execute_step():
+        if s_state['done'] or not s_state['stack']: return
+        tokens = input_str.split(); matched = sum(1 for x in s_state['trace'] if "Match" in x['Action'])
+        look = tokens[matched] if matched < len(tokens) else '$'
+        top, pid = s_state['stack'].pop()
+        step_data = {"Stack": " ".join([v for v, i in s_state['stack']] + [top]), "Input": " ".join(tokens[matched:]), "Action": ""}
+        
         if top == look:
-            rec["Action"] = f"Match {look}"
-            if top == '$': s.st_done, s.st_status = True, "Accepted"
-        elif top in processed_g:
+            step_data["Action"] = f"Match {look}"
+            if top == '$': s_state['done'], s_state['status'] = True, "✅ Accepted"
+        elif top in final_g:
             rule = m_table.at[top, look]
             if rule:
-                rec["Action"] = f"Apply {rule}"; rhs = rule.split('->')[1].split()
+                step_data["Action"] = f"Apply {rule}"; rhs = rule.split('->')[1].split()
                 if rhs == ['ε']:
-                    s.st_id += 1; eid = f"e{s.st_id}"; s.st_dot.node(eid, "ε", shape='plaintext'); s.st_dot.edge(pid, eid)
+                    s_state['id'] += 1; eid = f"e{s_state['id']}"; s_state['dot'].node(eid, "ε", shape='plaintext'); s_state['dot'].edge(pid, eid)
                 else:
-                    tmp = []
+                    nodes = []
                     for sym in rhs:
-                        s.st_id += 1; nid = str(s.st_id); s.st_dot.node(nid, sym, style='filled', fillcolor='lightgreen')
-                        s.st_dot.edge(pid, nid); tmp.append((sym, nid))
-                    for item in reversed(tmp): s.st_stack.append(item)
-            else: s.st_done, s.st_status = True, "Rejected"
-        else: s.st_done, s.st_status = True, "Rejected"
-        s.st_trace.append(rec)
+                        s_state['id'] += 1; nid = str(s_state['id'])
+                        s_state['dot'].node(nid, sym, style='filled', fillcolor='#d4edda'); s_state['dot'].edge(pid, nid)
+                        nodes.append((sym, nid))
+                    for item in reversed(nodes): s_state['stack'].append(item)
+            else: s_state['done'], s_state['status'] = True, "❌ Rejected (No Rule)"
+        else: s_state['done'], s_state['status'] = True, "❌ Rejected (Mismatch)"
+        s_state['trace'].append(step_data)
 
-    b1, b2 = st.columns(2)
-    if b1.button("⏭ خطوة تالية"): run_step(); st.rerun()
-    if b2.button("▶ تشغيل كامل"):
-        while not s.st_done: run_step()
+    trace_c1, trace_c2 = st.columns(2)
+    if trace_c1.button("⏭ خطوة تالية (Step)"): execute_step(); st.rerun()
+    if trace_c2.button("▶ تشغيل كامل (Run All)"):
+        while not s_state['done']: execute_step()
         st.rerun()
 
-    if s.st_trace:
-        st.table(pd.DataFrame(s.st_trace))
-        st.graphviz_chart(s.st_dot)
-        if s.st_done:
-            st.markdown(f'<div class="status-box {"accepted" if "Acc" in s.st_status else "rejected"}">{s.st_status}</div>', unsafe_allow_html=True)
+    if s_state['trace']:
+        st.table(pd.DataFrame(s_state['trace']))
+        st.subheader("🌲 شجرة الاشتقاق (Parse Tree)")
+        st.graphviz_chart(s_state['dot'])
+        if s_state['done']:
+            css_cls = "accepted" if "✅" in s_state['status'] else "rejected"
+            st.markdown(f'<div class="status-msg {css_cls}">{s_state["status"]}</div>', unsafe_allow_html=True)
 
     # 7. التصدير
     st.divider()
     st.subheader("📥 تصدير التقارير النهائية")
-    ex1, ex2 = st.columns(2)
-    with ex1:
+    exp_col1, exp_col2 = st.columns(2)
+    with exp_col1:
         if st.button("📄 تصدير PDF"):
-            pdf = FPDF(); pdf.add_page(); pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, "University of Misan - Compiler Report", 0, 1, 'C')
-            st.download_button("📥 تحميل PDF", bytes(pdf.output()), "Report.pdf")
-    with ex2:
+            pdf = FPDF(); pdf.add_page(); pdf.set_font("Arial", 'B', 14)
+            pdf.cell(0, 10, "Academic Compiler Report - Misan University", 0, 1, 'C')
+            st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Report.pdf")
+    with exp_col2:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
-            ff_df.to_excel(wr, sheet_name='Sets'); m_table.to_excel(wr, sheet_name='Table')
-            if s.st_trace: pd.DataFrame(s.st_trace).to_excel(wr, sheet_name='Trace')
-        st.download_button("📥 تحميل Excel", buf.getvalue(), "Compiler_Data.xlsx")
+            ff_df.to_excel(wr, sheet_name='FF_Sets')
+            m_table.to_excel(wr, sheet_name='M_Table')
+            if s_state['trace']: pd.DataFrame(s_state['trace']).to_excel(wr, sheet_name='Trace')
+        st.download_button("📥 تحميل Excel", buf.getvalue(), "Compiler_Analysis.xlsx")

@@ -6,7 +6,7 @@ import io
 import os
 from fpdf import FPDF
 
-# 1. الإعدادات البصرية والهوية الأكاديمية لجامعة ميسان
+# 1. الإعدادات البصرية والهوية الأكاديمية
 st.set_page_config(page_title="LL(1) Compiler Studio - University of Misan", layout="wide")
 
 st.markdown("""
@@ -33,14 +33,14 @@ with h_col1:
     if os.path.exists(logo_path):
         st.image(logo_path, width=130)
     else:
-        st.warning("⚠️ يرجى التأكد من تسمية الشعار بـ logo.jpg")
+        st.warning("⚠️ يرجى التأكد من وضع شعار الكلية باسم logo.jpg")
 
 with h_col2:
     st.markdown("""
         <div class="header-box">
             <div class="main-title">جامعة ميسان</div>
             <div class="sub-title">كلية التربية - قسم علوم الحاسبات</div>
-            <div class="sub-title" style="color: #10B981; font-weight: bold; margin-top: 5px;">مختبر المترجمات الذكي - LL(1) Parser</div>
+            <div class="sub-title" style="color: #10B981; font-weight: bold; margin-top: 5px;">مختبر المترجمات الذكي - LL(1) Parser Analyzer</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -53,19 +53,25 @@ class AcademicPDF(FPDF):
         self.cell(0, 10, 'University of Misan - Compiler Design Report', 0, 1, 'C')
         self.ln(5)
 
+    def safe_text(self, text):
+        return str(text).replace('ε', 'epsilon').replace('→', '->')
+
     def write_table(self, title, df):
         self.set_font("Arial", 'B', 12)
         self.cell(0, 10, title, 1, 1, 'C')
         self.set_font("Arial", '', 10)
         col_width = self.epw / len(df.columns)
-        for col in df.columns: self.cell(col_width, 8, str(col), 1, 0, 'C')
+        for col in df.columns: self.cell(col_width, 8, self.safe_text(str(col)), 1, 0, 'C')
         self.ln()
         for row in df.values:
-            for item in row: self.cell(col_width, 8, str(item), 1, 0, 'C')
+            for item in row:
+                # استبدال سطر التصادم برمز آمن في الـ PDF
+                clean_item = str(item).replace('\n', ' || ')
+                self.cell(col_width, 8, self.safe_text(clean_item), 1, 0, 'C')
             self.ln()
         self.ln(5)
 
-# 4. محرك المعالجة المتقدم (الخوارزميات المصححة)
+# 4. محرك المعالجة الأكاديمي (تصحيح الـ Factoring)
 def parse_grammar(text):
     g = OrderedDict()
     for line in text.strip().split('\n'):
@@ -87,7 +93,6 @@ def fix_left_recursion(g):
     return new_g
 
 def fix_left_factoring(g):
-    """خوارزمية أطول سلسلة مشتركة لحل مشكلة التداخل المتقدمة (Dangling Else)"""
     final_g = OrderedDict()
     nts_to_process = list(g.keys())
     
@@ -99,7 +104,7 @@ def fix_left_factoring(g):
         
         max_len = 0
         longest_prefix = []
-        # البحث عن أطول سلسلة مشتركة بين أي قاعدتين
+        
         for i in range(len(curr_prods)):
             for j in range(i + 1, len(curr_prods)):
                 p1, p2 = curr_prods[i], curr_prods[j]
@@ -119,7 +124,7 @@ def fix_left_factoring(g):
                     factored.append(rem if rem else ['ε'])
                 else: remaining.append(p)
             
-            # استخدام شرطة رئيسية (') لإنشاء رمز جديد نقي برمجياً
+            # ترميز أكاديمي معياري باستخدام S' و S'' 
             new_nt = f"{nt}'"
             while new_nt in final_g: new_nt += "'"
             
@@ -144,56 +149,51 @@ def compute_sets(grammar):
         else: res.add('ε')
         return res
 
-    while True:
-        changed = False
+    for _ in range(15):
         for nt, prods in grammar.items():
-            old = len(first[nt])
             for p in prods: first[nt].update(get_f(p))
-            if len(first[nt]) > old: changed = True
-        if not changed: break
 
     follow = {nt: set() for nt in grammar}
     if grammar: follow[list(grammar.keys())[0]].add('$')
-    while True:
-        changed = False
+    
+    for _ in range(15):
         for nt, prods in grammar.items():
             for p in prods:
                 for i, B in enumerate(p):
                     if B in grammar:
-                        old = len(follow[B])
                         beta = p[i+1:]
                         if beta:
                             fb = get_f(beta)
                             follow[B].update(fb - {'ε'})
                             if 'ε' in fb: follow[B].update(follow[nt])
                         else: follow[B].update(follow[nt])
-                        if len(follow[B]) > old: changed = True
-        if not changed: break
     return first, follow
 
-# 5. إدارة الذاكرة (Session State)
+# 5. الذاكرة (Session State)
 if 'st' not in st.session_state:
     st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'dot': Digraph(), 'id': 0, 'status': ""}
 
-# 6. الواجهة الجانبية (Sidebar)
+# 6. لوحة التحكم الجانبية
 with st.sidebar:
     st.header("⚙️ لوحة الإعدادات")
     grammar_txt = st.text_area("أدخل القواعد:", "S -> i E t S | i E t S e S | a\nE -> b", height=150)
     test_input = st.text_input("الجملة المختبرة:", "i b t a e a $")
-    if st.button("🔄 إعادة ضبط النظام"):
+    if st.button("🔄 تصفير الذاكرة"):
         st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'dot': Digraph(), 'id': 0, 'status': ""}
         st.rerun()
 
-# 7. معالجة القواعد وبناء الجداول
+# 7. المعالجة والجداول
 orig_g = parse_grammar(grammar_txt)
 if orig_g:
-    # تطبيق المعالجة المتقدمة
+    # تطبيق الخوارزميات
     processed_g = fix_left_factoring(fix_left_recursion(orig_g))
     f_set, l_set = compute_sets(processed_g)
     
-    # بناء جدول التنبؤ M-Table
+    # بناء جدول التنبؤ واكتشاف التصادم
+    is_ll1 = True
     terms = sorted(list({s for ps in processed_g.values() for p in ps for s in p if s not in processed_g and s != 'ε'})) + ['$']
     m_table = pd.DataFrame("", index=processed_g.keys(), columns=terms)
+    
     for nt, ps in processed_g.items():
         for p in ps:
             pf = set()
@@ -201,12 +201,29 @@ if orig_g:
                 sf = f_set[s] if s in processed_g else {s}; pf.update(sf - {'ε'})
                 if 'ε' not in sf: break
             else: pf.add('ε')
+            
+            rule_str = f"{nt}->{' '.join(p)}"
             for a in pf:
-                if a != 'ε': m_table.at[nt, a] = f"{nt}->{' '.join(p)}"
+                if a != 'ε':
+                    if m_table.at[nt, a] and rule_str not in m_table.at[nt, a]:
+                        m_table.at[nt, a] += f"\n{rule_str}"
+                        is_ll1 = False
+                    else:
+                        m_table.at[nt, a] = rule_str
             if 'ε' in pf:
-                for b in l_set[nt]: m_table.at[nt, b] = f"{nt}->{' '.join(p)}"
+                for b in l_set[nt]:
+                    if m_table.at[nt, b] and rule_str not in m_table.at[nt, b]:
+                        m_table.at[nt, b] += f"\n{rule_str}"
+                        is_ll1 = False
+                    else:
+                        m_table.at[nt, b] = rule_str
 
-    # العرض الأكاديمي
+    # عرض الرسائل الأكاديمية
+    if not is_ll1:
+        st.error("⚠️ تحذير أكاديمي: هذه القواعد ليست من نوع LL(1)! يوجد تضارب (Conflict) في جدول التنبؤ بسبب تقاطع مجموعات First/Follow. الخلايا المتضاربة مميزة باللون الأحمر.")
+    else:
+        st.success("✅ القواعد مطابقة لشروط LL(1) ولا يوجد أي تصادم.")
+
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
@@ -222,9 +239,11 @@ if orig_g:
     st.table(ff_df)
 
     st.subheader("📊 جدول التنبؤ (Parsing Table)")
-    st.dataframe(m_table, use_container_width=True)
+    def highlight_conflicts(val):
+        return 'background-color: #f8d7da; color: #721c24; font-weight: bold;' if '\n' in str(val) else ''
+    st.dataframe(m_table.style.applymap(highlight_conflicts), use_container_width=True)
 
-    # 8. التتبع وشجرة الاشتقاق (Parsing Trace)
+    # 8. التتبع وشجرة الاشتقاق
     st.divider()
     st.subheader("⏳ التتبع الحي للجملة")
     s = st.session_state.st
@@ -244,7 +263,10 @@ if orig_g:
             if top == '$': s['done'], s['status'] = True, "✅ الجملة مقبولة (Accepted)"
         elif top in processed_g:
             rule = m_table.at[top, lookahead]
-            if rule:
+            if '\n' in rule: # معالجة التضارب في التتبع
+                row["Action"] = f"Conflict: {rule.replace(chr(10), ' OR ')}"
+                s['done'], s['status'] = True, "❌ مرفوضة (تصادم في الجدول يمنع الاستمرار - Non-Deterministic)"
+            elif rule:
                 row["Action"] = f"Apply {rule}"; rhs = rule.split('->')[1].split()
                 if rhs == ['ε']:
                     s['id'] += 1; eid = f"e{s['id']}"; s['dot'].node(eid, "ε", shape='plaintext'); s['dot'].edge(pid, eid)
@@ -274,7 +296,7 @@ if orig_g:
             cls = "accepted" if "✅" in s['status'] else "rejected"
             st.markdown(f'<div class="status-box {cls}">{s["status"]}</div>', unsafe_allow_html=True)
 
-    # 9. التصدير (PDF & Excel)
+    # 9. التصدير
     st.divider()
     st.subheader("📥 تصدير التقارير النهائية")
     ex1, ex2 = st.columns(2)

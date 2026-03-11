@@ -4,6 +4,7 @@ from collections import OrderedDict
 from graphviz import Digraph
 import io
 import os
+import re
 from fpdf import FPDF
 
 # 1. الإعدادات البصرية والهوية الأكاديمية
@@ -33,7 +34,7 @@ with h_col1:
     if os.path.exists(logo_path):
         st.image(logo_path, width=130)
     else:
-        st.warning("⚠️ يرجى التأكد من وضع شعار الكلية باسم logo.jpg")
+        st.warning("⚠️ يرجى وضع شعار الكلية باسم logo.jpg")
 
 with h_col2:
     st.markdown("""
@@ -65,18 +66,32 @@ class AcademicPDF(FPDF):
         self.ln()
         for row in df.values:
             for item in row:
-                # استبدال سطر التصادم برمز آمن في الـ PDF
                 clean_item = str(item).replace('\n', ' || ')
                 self.cell(col_width, 8, self.safe_text(clean_item), 1, 0, 'C')
             self.ln()
         self.ln(5)
 
-# 4. محرك المعالجة الأكاديمي (تصحيح الـ Factoring)
+# 4. محرك المعالجة الأكاديمي المطور (Smart Tokenizer & Algorithms)
+def smart_tokenize(rule_str):
+    """يفكك الرموز المتلاصقة ويعالج جميع أنواع الأسهم"""
+    rule_str = rule_str.replace("→", "->").replace("=>", "->").replace("ε", "epsilon")
+    rule_str = rule_str.replace("->", " -> ").replace("|", " | ")
+    tokens = []
+    for part in rule_str.split():
+        if part in ['->', '|', 'epsilon', 'id']:
+            tokens.append(part)
+        else:
+            # فصل الحروف الكبيرة، الصغيرة، والرموز التي تحتوي على شرطة (')
+            matches = re.findall(r"id|epsilon|[A-Z]'+|[A-Z]|[a-z]|[^ \w]", part)
+            tokens.extend(matches)
+    return " ".join(tokens).replace("epsilon", "ε")
+
 def parse_grammar(text):
     g = OrderedDict()
     for line in text.strip().split('\n'):
-        if '->' in line:
-            lhs, rhs = line.split('->')
+        clean_line = smart_tokenize(line)
+        if '->' in clean_line:
+            lhs, rhs = clean_line.split('->')
             g[lhs.strip()] = [p.strip().split() for p in rhs.split('|')]
     return g
 
@@ -124,7 +139,6 @@ def fix_left_factoring(g):
                     factored.append(rem if rem else ['ε'])
                 else: remaining.append(p)
             
-            # ترميز أكاديمي معياري باستخدام S' و S'' 
             new_nt = f"{nt}'"
             while new_nt in final_g: new_nt += "'"
             
@@ -176,143 +190,149 @@ if 'st' not in st.session_state:
 # 6. لوحة التحكم الجانبية
 with st.sidebar:
     st.header("⚙️ لوحة الإعدادات")
-    grammar_txt = st.text_area("أدخل القواعد:", "S -> i E t S | i E t S e S | a\nE -> b", height=150)
-    test_input = st.text_input("الجملة المختبرة:", "i b t a e a $")
+    grammar_txt = st.text_area("أدخل القواعد (تدعم الرموز المتلاصقة مثل aABC):", "S -> aABC\nA -> a | ab\nB -> a | ε\nC -> b | ε", height=150)
+    test_input = st.text_input("الجملة المختبرة:", "a a a b $")
     if st.button("🔄 تصفير الذاكرة"):
         st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'dot': Digraph(), 'id': 0, 'status': ""}
         st.rerun()
 
-# 7. المعالجة والجداول
-orig_g = parse_grammar(grammar_txt)
-if orig_g:
-    # تطبيق الخوارزميات
-    processed_g = fix_left_factoring(fix_left_recursion(orig_g))
-    f_set, l_set = compute_sets(processed_g)
-    
-    # بناء جدول التنبؤ واكتشاف التصادم
-    is_ll1 = True
-    terms = sorted(list({s for ps in processed_g.values() for p in ps for s in p if s not in processed_g and s != 'ε'})) + ['$']
-    m_table = pd.DataFrame("", index=processed_g.keys(), columns=terms)
-    
-    for nt, ps in processed_g.items():
-        for p in ps:
-            pf = set()
-            for s in p:
-                sf = f_set[s] if s in processed_g else {s}; pf.update(sf - {'ε'})
-                if 'ε' not in sf: break
-            else: pf.add('ε')
-            
-            rule_str = f"{nt}->{' '.join(p)}"
-            for a in pf:
-                if a != 'ε':
-                    if m_table.at[nt, a] and rule_str not in m_table.at[nt, a]:
-                        m_table.at[nt, a] += f"\n{rule_str}"
-                        is_ll1 = False
-                    else:
-                        m_table.at[nt, a] = rule_str
-            if 'ε' in pf:
-                for b in l_set[nt]:
-                    if m_table.at[nt, b] and rule_str not in m_table.at[nt, b]:
-                        m_table.at[nt, b] += f"\n{rule_str}"
-                        is_ll1 = False
-                    else:
-                        m_table.at[nt, b] = rule_str
-
-    # عرض الرسائل الأكاديمية
-    if not is_ll1:
-        st.error("⚠️ تحذير أكاديمي: هذه القواعد ليست من نوع LL(1)! يوجد تضارب (Conflict) في جدول التنبؤ بسبب تقاطع مجموعات First/Follow. الخلايا المتضاربة مميزة باللون الأحمر.")
+# 7. التنفيذ الآمن (معالجة الأخطاء لتجنب اختفاء الواجهة)
+try:
+    orig_g = parse_grammar(grammar_txt)
+    if not orig_g:
+        st.info("💡 بانتظار إدخال قواعد صحيحة لتفعيل المحلل...")
     else:
-        st.success("✅ القواعد مطابقة لشروط LL(1) ولا يوجد أي تصادم.")
-
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("📋 القواعد الأصلية")
-        for k, v in orig_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
-    with c2:
-        st.subheader("🛠 القواعد بعد المعالجة (Factored & Non-Recursive)")
-        for k, v in processed_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
-
-    st.subheader("🔍 مجموعات First & Follow")
-    ff_df = pd.DataFrame({"First": [str(sorted(list(f_set[n]))) for n in processed_g], 
-                          "Follow": [str(sorted(list(l_set[n]))) for n in processed_g]}, index=processed_g.keys())
-    st.table(ff_df)
-
-    st.subheader("📊 جدول التنبؤ (Parsing Table)")
-    def highlight_conflicts(val):
-        return 'background-color: #f8d7da; color: #721c24; font-weight: bold;' if '\n' in str(val) else ''
-    st.dataframe(m_table.style.applymap(highlight_conflicts), use_container_width=True)
-
-    # 8. التتبع وشجرة الاشتقاق
-    st.divider()
-    st.subheader("⏳ التتبع الحي للجملة")
-    s = st.session_state.st
-    if not s['stack']:
-        s['stack'] = [('$', '0'), (list(processed_g.keys())[0], '0')]
-        s['dot'] = Digraph(); s['dot'].node('0', list(processed_g.keys())[0], style='filled', fillcolor='#DBEAFE')
-
-    def run_step():
-        if s['done'] or not s['stack']: return
-        tokens = test_input.split(); matched = sum(1 for x in s['trace'] if "Match" in x['Action'])
-        lookahead = tokens[matched] if matched < len(tokens) else '$'
-        top, pid = s['stack'].pop()
-        row = {"Stack": " ".join([v for v, i in s['stack']] + [top]), "Input": " ".join(tokens[matched:]), "Action": ""}
+        # تطبيق الخوارزميات
+        processed_g = fix_left_factoring(fix_left_recursion(orig_g))
+        f_set, l_set = compute_sets(processed_g)
         
-        if top == lookahead:
-            row["Action"] = f"Match {lookahead}"
-            if top == '$': s['done'], s['status'] = True, "✅ الجملة مقبولة (Accepted)"
-        elif top in processed_g:
-            rule = m_table.at[top, lookahead]
-            if '\n' in rule: # معالجة التضارب في التتبع
-                row["Action"] = f"Conflict: {rule.replace(chr(10), ' OR ')}"
-                s['done'], s['status'] = True, "❌ مرفوضة (تصادم في الجدول يمنع الاستمرار - Non-Deterministic)"
-            elif rule:
-                row["Action"] = f"Apply {rule}"; rhs = rule.split('->')[1].split()
-                if rhs == ['ε']:
-                    s['id'] += 1; eid = f"e{s['id']}"; s['dot'].node(eid, "ε", shape='plaintext'); s['dot'].edge(pid, eid)
-                else:
-                    nodes = []
-                    for sym in rhs:
-                        s['id'] += 1; nid = str(s['id'])
-                        s['dot'].node(nid, sym, style='filled', fillcolor='#D1FAE5' if sym not in processed_g else '#F3F4F6')
-                        s['dot'].edge(pid, nid)
-                        nodes.append((sym, nid))
-                    for item in reversed(nodes): s['stack'].append(item)
-            else: s['done'], s['status'] = True, "❌ مرفوضة (لا توجد قاعدة - Blank Cell)"
-        else: s['done'], s['status'] = True, "❌ مرفوضة (عدم تطابق - Mismatch)"
-        s['trace'].append(row)
+        # بناء جدول التنبؤ واكتشاف التصادم
+        is_ll1 = True
+        terms = sorted(list({s for ps in processed_g.values() for p in ps for s in p if s not in processed_g and s != 'ε'})) + ['$']
+        m_table = pd.DataFrame("", index=processed_g.keys(), columns=terms)
+        
+        for nt, ps in processed_g.items():
+            for p in ps:
+                pf = set()
+                for s in p:
+                    sf = f_set[s] if s in processed_g else {s}; pf.update(sf - {'ε'})
+                    if 'ε' not in sf: break
+                else: pf.add('ε')
+                
+                rule_str = f"{nt}->{' '.join(p)}"
+                for a in pf:
+                    if a != 'ε':
+                        if m_table.at[nt, a] and rule_str not in m_table.at[nt, a]:
+                            m_table.at[nt, a] += f"\n{rule_str}"
+                            is_ll1 = False
+                        else:
+                            m_table.at[nt, a] = rule_str
+                if 'ε' in pf:
+                    for b in l_set[nt]:
+                        if m_table.at[nt, b] and rule_str not in m_table.at[nt, b]:
+                            m_table.at[nt, b] += f"\n{rule_str}"
+                            is_ll1 = False
+                        else:
+                            m_table.at[nt, b] = rule_str
 
-    b1, b2 = st.columns(2)
-    if b1.button("⏭ خطوة تالية (Step)"): run_step(); st.rerun()
-    if b2.button("▶ تشغيل كامل (Run All)"):
-        while not s['done']: run_step()
-        st.rerun()
+        # عرض الرسائل الأكاديمية
+        if not is_ll1:
+            st.error("⚠️ تحذير أكاديمي: هذه القواعد ليست من نوع LL(1)! يوجد تضارب (Conflict) في جدول التنبؤ. الخلايا المتضاربة مميزة باللون الأحمر.")
+        else:
+            st.success("✅ القواعد مطابقة لشروط LL(1) ولا يوجد أي تصادم.")
 
-    if s['trace']:
-        st.table(pd.DataFrame(s['trace']))
-        st.subheader("🌲 شجرة الاشتقاق (Parse Tree)")
-        st.graphviz_chart(s['dot'])
-        if s['done']:
-            cls = "accepted" if "✅" in s['status'] else "rejected"
-            st.markdown(f'<div class="status-box {cls}">{s["status"]}</div>', unsafe_allow_html=True)
+        st.divider()
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("📋 القواعد الأصلية")
+            for k, v in orig_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
+        with c2:
+            st.subheader("🛠 القواعد بعد المعالجة (Factored & Non-Recursive)")
+            for k, v in processed_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
 
-    # 9. التصدير
-    st.divider()
-    st.subheader("📥 تصدير التقارير النهائية")
-    ex1, ex2 = st.columns(2)
-    with ex1:
-        if st.button("📄 تصدير تقرير PDF"):
-            try:
-                pdf = AcademicPDF()
-                pdf.write_table("First & Follow Sets", ff_df.reset_index())
-                pdf.write_table("Parsing Table", m_table.reset_index())
-                if s['trace']: pdf.write_table("Parsing Trace", pd.DataFrame(s['trace']))
-                st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"خطأ أثناء توليد الـ PDF: {e}")
-    with ex2:
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
-            ff_df.to_excel(wr, sheet_name='Sets'); m_table.to_excel(wr, sheet_name='Table')
-            if s['trace']: pd.DataFrame(s['trace']).to_excel(wr, sheet_name='Trace')
-        st.download_button("📥 تحميل Excel", buf.getvalue(), "Compiler_Data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.subheader("🔍 مجموعات First & Follow")
+        ff_df = pd.DataFrame({"First": [str(sorted(list(f_set[n]))) for n in processed_g], 
+                              "Follow": [str(sorted(list(l_set[n]))) for n in processed_g]}, index=processed_g.keys())
+        st.table(ff_df)
+
+        st.subheader("📊 جدول التنبؤ (Parsing Table)")
+        def highlight_conflicts(val):
+            return 'background-color: #f8d7da; color: #721c24; font-weight: bold;' if '\n' in str(val) else ''
+        st.dataframe(m_table.style.applymap(highlight_conflicts), use_container_width=True)
+
+        # 8. التتبع وشجرة الاشتقاق
+        st.divider()
+        st.subheader("⏳ التتبع الحي للجملة (Parsing Trace)")
+        s = st.session_state.st
+        if not s['stack']:
+            s['stack'] = [('$', '0'), (list(processed_g.keys())[0], '0')]
+            s['dot'] = Digraph(); s['dot'].node('0', list(processed_g.keys())[0], style='filled', fillcolor='#DBEAFE')
+
+        def run_step():
+            if s['done'] or not s['stack']: return
+            tokens = test_input.split(); matched = sum(1 for x in s['trace'] if "Match" in x['Action'])
+            lookahead = tokens[matched] if matched < len(tokens) else '$'
+            top, pid = s['stack'].pop()
+            row = {"Stack": " ".join([v for v, i in s['stack']] + [top]), "Input": " ".join(tokens[matched:]), "Action": ""}
+            
+            if top == lookahead:
+                row["Action"] = f"Match {lookahead}"
+                if top == '$': s['done'], s['status'] = True, "✅ الجملة مقبولة (Accepted)"
+            elif top in processed_g:
+                rule = m_table.at[top, lookahead]
+                if '\n' in rule:
+                    row["Action"] = f"Conflict: {rule.replace(chr(10), ' OR ')}"
+                    s['done'], s['status'] = True, "❌ مرفوضة (تصادم في الجدول يمنع الاستمرار - Non-Deterministic)"
+                elif rule:
+                    row["Action"] = f"Apply {rule}"; rhs = rule.split('->')[1].split()
+                    if rhs == ['ε']:
+                        s['id'] += 1; eid = f"e{s['id']}"; s['dot'].node(eid, "ε", shape='plaintext'); s['dot'].edge(pid, eid)
+                    else:
+                        nodes = []
+                        for sym in rhs:
+                            s['id'] += 1; nid = str(s['id'])
+                            s['dot'].node(nid, sym, style='filled', fillcolor='#D1FAE5' if sym not in processed_g else '#F3F4F6')
+                            s['dot'].edge(pid, nid)
+                            nodes.append((sym, nid))
+                        for item in reversed(nodes): s['stack'].append(item)
+                else: s['done'], s['status'] = True, "❌ مرفوضة (لا توجد قاعدة - Blank Cell)"
+            else: s['done'], s['status'] = True, "❌ مرفوضة (عدم تطابق - Mismatch)"
+            s['trace'].append(row)
+
+        b1, b2 = st.columns(2)
+        if b1.button("⏭ خطوة تالية (Step)"): run_step(); st.rerun()
+        if b2.button("▶ تشغيل كامل (Run All)"):
+            while not s['done']: run_step()
+            st.rerun()
+
+        if s['trace']:
+            st.table(pd.DataFrame(s['trace']))
+            st.subheader("🌲 شجرة الاشتقاق (Parse Tree)")
+            st.graphviz_chart(s['dot'])
+            if s['done']:
+                cls = "accepted" if "✅" in s['status'] else "rejected"
+                st.markdown(f'<div class="status-box {cls}">{s["status"]}</div>', unsafe_allow_html=True)
+
+        # 9. التصدير
+        st.divider()
+        st.subheader("📥 تصدير التقارير النهائية")
+        ex1, ex2 = st.columns(2)
+        with ex1:
+            if st.button("📄 تصدير تقرير PDF"):
+                try:
+                    pdf = AcademicPDF()
+                    pdf.write_table("First & Follow Sets", ff_df.reset_index())
+                    pdf.write_table("Parsing Table", m_table.reset_index())
+                    if s['trace']: pdf.write_table("Parsing Trace", pd.DataFrame(s['trace']))
+                    st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")
+                except Exception as e:
+                    st.error(f"خطأ أثناء توليد الـ PDF: {e}")
+        with ex2:
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
+                ff_df.to_excel(wr, sheet_name='Sets'); m_table.to_excel(wr, sheet_name='Table')
+                if s['trace']: pd.DataFrame(s['trace']).to_excel(wr, sheet_name='Trace')
+            st.download_button("📥 تحميل Excel", buf.getvalue(), "Compiler_Data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+except Exception as e:
+    st.error(f"حدث خطأ غير متوقع أثناء معالجة القواعد المدخلة: {e}\nيرجى التأكد من كتابة القواعد بصيغة صحيحة.")

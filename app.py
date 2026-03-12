@@ -18,17 +18,6 @@ st.markdown("""
     .main-title { font-size: 26px; font-weight: bold; color: #1E3A8A; margin-bottom: 5px; }
     .sub-title { font-size: 19px; color: #4B5563; }
     
-    /* فرض محاذاة اليسار (LTR) للقواعد والجداول بشكل صارم */
-    div[data-testid="stTable"], div[data-testid="stDataFrame"], .stCodeBlock { 
-        direction: ltr !important; 
-    }
-    div[data-testid="stTable"] th, div[data-testid="stTable"] td, 
-    div[data-testid="stDataFrame"] th, div[data-testid="stDataFrame"] td {
-        text-align: left !important;
-        direction: ltr !important;
-    }
-    .stTable td { white-space: pre !important; font-family: 'monospace' !important; font-size: 15px; }
-    
     .footer { position: fixed; left: 0; bottom: 0; width: 100%; background-color: #f8fafc; color: #1e3a8a;
               text-align: center; padding: 10px; font-weight: bold; border-top: 3px solid #1e3a8a; z-index: 1000; }
     .status-box { padding: 15px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 18px; margin: 15px 0; }
@@ -54,7 +43,28 @@ with h_col2:
         </div>
         """, unsafe_allow_html=True)
 
-# 3. فئة تقارير PDF المجهزة للحماية من أخطاء الخطوط
+# 3. دالة مخصصة لعرض الجداول (LTR) حصراً لضمان الترتيب العلمي الصحيح
+def render_ltr_table(df, highlight_func=None):
+    if highlight_func:
+        html_table = df.style.applymap(highlight_func).hide(axis="index").to_html()
+    else:
+        html_table = df.to_html(index=False, escape=False)
+        
+    st.markdown(f'''
+    <div dir="ltr" style="width: 100%; overflow-x: auto; margin-bottom: 20px;">
+        <style>
+            .ltr-table table {{ width: 100%; border-collapse: collapse; font-family: monospace; font-size: 16px; direction: ltr !important; text-align: left !important; }}
+            .ltr-table th, .ltr-table td {{ border: 1px solid #d1d5db; padding: 12px; text-align: left !important; }}
+            .ltr-table th {{ background-color: #f3f4f6; color: #111827; font-weight: bold; }}
+            .ltr-table td {{ background-color: #ffffff; white-space: pre-wrap; }}
+        </style>
+        <div class="ltr-table">
+            {html_table}
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+# 4. فئة تقارير PDF
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
@@ -62,7 +72,6 @@ class AcademicPDF(FPDF):
         self.has_unicode = False
         font_path = "DejaVuSans.ttf"
         
-        # التحقق من وجود خط يدعم اليونيكود
         if os.path.exists(font_path):
             try:
                 self.add_font('DejaVu', '', font_path, uni=True)
@@ -78,9 +87,7 @@ class AcademicPDF(FPDF):
 
     def safe_text(self, text):
         text = str(text).replace('→', '->')
-        if not self.has_unicode:
-            # حماية لمنع الخطأ إذا لم يكن خط اليونيكود متوفراً
-            text = text.replace('ε', 'eps')
+        if not self.has_unicode: text = text.replace('ε', 'eps')
         return text
 
     def write_grammar(self, title, grammar_dict):
@@ -94,9 +101,10 @@ class AcademicPDF(FPDF):
 
     def write_table(self, title, df):
         self.set_font("Arial", 'B', 12) if not self.has_unicode else self.set_font('DejaVu', '', 12)
-        self.cell(0, 10, title, 1, 1, 'C')
+        self.cell(0, 10, title, 0, 1, 'L')
         self.set_font("Arial", '', 10) if not self.has_unicode else self.set_font('DejaVu', '', 10)
         col_width = self.epw / len(df.columns)
+        
         for col in df.columns: 
             self.cell(col_width, 8, self.safe_text(str(col)), 1, 0, 'C')
         self.ln()
@@ -107,14 +115,13 @@ class AcademicPDF(FPDF):
             self.ln()
         self.ln(5)
 
-# 4. محرك المعالجة
+# 5. محرك المعالجة (Grammar Engine)
 def smart_tokenize(rule_str):
     rule_str = rule_str.replace("→", "->").replace("=>", "->").replace("epsilon", "ε")
     rule_str = rule_str.replace("->", " -> ").replace("|", " | ")
     tokens = []
     for part in rule_str.split():
-        if part in ['->', '|', 'ε', 'id']:
-            tokens.append(part)
+        if part in ['->', '|', 'ε', 'id']: tokens.append(part)
         else:
             matches = re.findall(r"id|ε|[A-Z][0-9]*|[a-z]|[^ \w]", part)
             tokens.extend(matches)
@@ -204,28 +211,26 @@ def compute_sets(grammar):
                         else: follow[B].update(follow[nt])
     return first, follow
 
-# 5. الذاكرة (معالجة شجرة الإعراب للحفظ الدائم)
+# 6. الذاكرة الداخلية للحالة (State Management)
 if 'st' not in st.session_state:
     st.session_state.st = {
         'trace': [], 'stack': [], 'done': False, 'id': 0, 'status': "",
-        'tree_nodes': [], 'tree_edges': [] # تخزين العقد والروابط خام لتجنب ضياعها
+        'tree_nodes': [], 'tree_edges': [] 
     }
 
-# 6. لوحة التحكم الجانبية
+# 7. لوحة التحكم
 with st.sidebar:
     st.header("⚙️ لوحة الإعدادات")
-    grammar_txt = st.text_area("أدخل القواعد (يسمح بالتلاصق مثل aABC):", "A -> a | a b\nB -> c | c d", height=150)
-    test_input = st.text_input("الجملة المختبرة:", "a b $")
-    if st.button("🔄 تصفير الذاكرة"):
+    grammar_txt = st.text_area("أدخل القواعد:", "E -> T E1\nE1 -> + T E1 | ε\nT -> F T1\nT1 -> * F T1 | ε\nF -> ( E ) | id", height=150)
+    test_input = st.text_input("الجملة المختبرة:", "id + id * id $")
+    if st.button("🔄 تصفير الذاكرة والبدء من جديد"):
         st.session_state.st = {'trace': [], 'stack': [], 'done': False, 'id': 0, 'status': "", 'tree_nodes': [], 'tree_edges': []}
         st.rerun()
 
-# 7. التنفيذ
+# 8. التنفيذ الحي
 try:
     orig_g = parse_grammar(grammar_txt)
-    if not orig_g:
-        st.info("💡 بانتظار إدخال قواعد صحيحة...")
-    else:
+    if orig_g:
         processed_g = fix_left_factoring(fix_left_recursion(orig_g))
         f_set, l_set = compute_sets(processed_g)
         
@@ -253,36 +258,37 @@ try:
                             m_table.at[nt, b] += f"\n{rule_str}"; is_ll1 = False
                         else: m_table.at[nt, b] = rule_str
 
-        if not is_ll1:
-            st.error("⚠️ تحذير: هذه القواعد ليست LL(1)! يوجد تصادم (Conflict).")
-        else:
-            st.success("✅ القواعد مطابقة لشروط LL(1).")
+        if not is_ll1: st.error("⚠️ تحذير: هذه القواعد ليست LL(1)! يوجد تصادم (Conflict).")
+        else: st.success("✅ القواعد مطابقة لشروط LL(1).")
 
-        st.divider()
+        # عرض القواعد
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("📋 القواعد الأصلية")
             for k, v in orig_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
         with c2:
-            st.subheader("🛠 القواعد المعالجة (Factored & Non-Recursive)")
+            st.subheader("🛠 القواعد بعد المعالجة")
             for k, v in processed_g.items(): st.code(f"{k} → {' | '.join([' '.join(p) for p in v])}")
 
+        # عرض جداول LTR المخصصة
         st.subheader("🔍 مجموعات First & Follow")
         ff_df = pd.DataFrame({
+            "Non-Terminal": list(processed_g.keys()),
             "First": ["{ " + ", ".join(sorted(list(f_set[n]))) + " }" for n in processed_g], 
             "Follow": ["{ " + ", ".join(sorted(list(l_set[n]))) + " }" for n in processed_g]
-        }, index=processed_g.keys())
-        st.table(ff_df)
+        })
+        render_ltr_table(ff_df)
 
         st.subheader("📊 جدول التنبؤ (Parsing Table)")
+        m_table_display = m_table.copy()
+        m_table_display.insert(0, "NT", m_table_display.index) # إضافة العمود الأول
         def highlight_conflicts(val): return 'background-color: #f8d7da; color: #721c24; font-weight: bold;' if '\n' in str(val) else ''
-        st.dataframe(m_table.style.applymap(highlight_conflicts), use_container_width=True)
+        render_ltr_table(m_table_display, highlight_func=highlight_conflicts)
 
         st.divider()
         st.subheader("⏳ التتبع الحي للجملة (Parsing Trace)")
         s = st.session_state.st
         
-        # تهيئة الجذر في الشجرة إذا كانت فارغة
         if not s['stack']:
             root_nt = list(processed_g.keys())[0]
             s['stack'] = [('$', '0'), (root_nt, '0')]
@@ -294,7 +300,7 @@ try:
             lookahead = tokens[matched] if matched < len(tokens) else '$'
             top, pid = s['stack'].pop()
             
-            # ضمان ترتيب الأعمدة من اليسار إلى اليمين
+            # ضمان ترتيب أعمدة الـ Stack, Input, Action بحيث يكون الأكشن آخر عمود باليمين LTR
             row = OrderedDict()
             row["Stack"] = " ".join([v for v, i in s['stack']] + [top])
             row["Input"] = " ".join(tokens[matched:])
@@ -333,18 +339,21 @@ try:
             while not s['done']: run_step()
             st.rerun()
 
-        # إعادة بناء كائن Graphviz من البيانات الخام في كل تحديث للصفحة
+        # بناء كائن الشجرة مع فرض الأسماء (label) صراحةً لحل مشكلة الأرقام
         current_dot = Digraph()
         for nid, lbl, is_term in s['tree_nodes']:
             color = '#ffffff' if lbl == 'ε' else ('#D1FAE5' if is_term else '#DBEAFE')
             shape = 'plaintext' if lbl == 'ε' else 'ellipse'
             style = '' if lbl == 'ε' else 'filled'
-            current_dot.node(nid, lbl, style=style, fillcolor=color, shape=shape)
-        for src, dst in s['tree_edges']: current_dot.edge(src, dst)
+            # إضافة `label=str(lbl)` يمنع Graphviz من عرض الـ ID كرقم
+            current_dot.node(name=str(nid), label=str(lbl), style=style, fillcolor=color, shape=shape)
+        
+        for src, dst in s['tree_edges']: current_dot.edge(str(src), str(dst))
 
         if s['trace']:
-            # عرض جدول التتبع
-            st.table(pd.DataFrame(s['trace']))
+            # عرض جدول التتبع المنظم LTR
+            render_ltr_table(pd.DataFrame(s['trace']))
+            
             st.subheader("🌲 شجرة الاشتقاق (Parse Tree)")
             st.graphviz_chart(current_dot)
             if s['done']:
@@ -353,38 +362,30 @@ try:
 
         st.divider()
         st.subheader("📥 تصدير التقارير النهائية")
-        ex1, ex2 = st.columns(2)
-        with ex1:
-            if st.button("📄 تصدير تقرير PDF"):
-                try:
-                    pdf = AcademicPDF()
-                    pdf.write_grammar("1. Original Grammar:", orig_g)
-                    pdf.write_grammar("2. Processed Grammar (Factored & Non-Recursive):", processed_g)
-                    pdf.write_table("3. First & Follow Sets", ff_df.reset_index().rename(columns={'index': 'NT'}))
-                    pdf.write_table("4. Parsing Table", m_table.reset_index().rename(columns={'index': 'NT'}))
-                    
-                    if s['trace']: 
-                        pdf.write_table("5. Parsing Trace", pd.DataFrame(s['trace']))
-                        # إضافة الشجرة المكتملة إلى الـ PDF
-                        try:
-                            current_dot.render('parse_tree', format='png', cleanup=True)
-                            pdf.add_page()
-                            pdf.set_font("Arial", 'B', 12) if not pdf.has_unicode else pdf.set_font('DejaVu', '', 12)
-                            pdf.cell(0, 10, '6. Parse Tree:', 0, 1, 'C')
-                            pdf.image('parse_tree.png', x=10, w=190)
-                        except Exception as img_err:
-                            pdf.cell(0, 10, '(Could not render tree image)', 0, 1, 'C')
+        
+        if st.button("📄 تصدير تقرير PDF"):
+            try:
+                pdf = AcademicPDF()
+                pdf.write_grammar("1. Original Grammar:", orig_g)
+                pdf.write_grammar("2. Processed Grammar:", processed_g)
+                pdf.write_table("3. First & Follow Sets", ff_df)
+                pdf.write_table("4. Parsing Table", m_table_display)
+                
+                if s['trace']: 
+                    pdf.add_page() # فصل جدول التتبع في صفحة مستقلة كما طلبت
+                    pdf.write_table("5. Parsing Trace", pd.DataFrame(s['trace']))
+                    try:
+                        current_dot.render('parse_tree', format='png', cleanup=True)
+                        pdf.add_page()
+                        pdf.set_font("Arial", 'B', 12) if not pdf.has_unicode else pdf.set_font('DejaVu', '', 12)
+                        pdf.cell(0, 10, '6. Parse Tree:', 0, 1, 'C')
+                        pdf.image('parse_tree.png', x=10, w=190)
+                    except:
+                        pdf.cell(0, 10, '(Could not render tree image in PDF)', 0, 1, 'C')
 
-                    st.download_button("📥 تحميل PDF", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")
-                except Exception as e:
-                    st.error(f"خطأ أثناء توليد الـ PDF: {e}")
-        with ex2:
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
-                ff_df.to_excel(wr, sheet_name='Sets')
-                m_table.to_excel(wr, sheet_name='Table')
-                if s['trace']: pd.DataFrame(s['trace']).to_excel(wr, sheet_name='Trace')
-            st.download_button("📥 تحميل Excel", buf.getvalue(), "Compiler_Data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                st.download_button("📥 تحميل التقرير (PDF)", bytes(pdf.output()), "LL1_Report.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"خطأ أثناء توليد الـ PDF: {e}")
 
 except Exception as e:
-    st.error(f"حدث خطأ: {e}\nيرجى التأكد من كتابة القواعد بصيغة صحيحة.")
+    st.error(f"حدث خطأ أثناء المعالجة: {e}")
